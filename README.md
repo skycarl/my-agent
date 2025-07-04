@@ -1,0 +1,68 @@
+<h1 align="center"> 
+FastAPI Boilerplate
+</h1>
+
+<h2 align="center">
+Simple FastAPI-based project template
+</h2>
+
+# 💎 Features
+
+✅ Production ready FastAPI application\
+✅ Clean architecture with clear separation of concerns\
+✅ Configuration management with pydantic-settings\
+✅ Async FastAPI endpoints\
+✅ Loguru logging mechanism\
+✅ Unit tests with Pytest\
+✅ `uv` dependency management for fast and reliable builds
+
+
+# ⚒️ Techologies Used
+
+- Pydantic: For typing & serialization
+- Pytests: For TDD or Unit Testing
+- `uv`: Python dependency management packaging made easy and fast
+- Docker & docker-compose: for smoother deployment
+- Loguru: Easiest logging ever done
+- Pydantic Settings: Type-safe environment variable management with automatic validation
+
+# 🚀 Setup 🕙
+Make sure you have docker and docker-compose installed [docker installation guide](https://docs.docker.com/compose/install/)
+
+## Configuration
+This project uses **pydantic-settings** for environment variable management for type safety and validation.
+
+## Step 1
+Create **.env** file in root folder fastapi-boilerplate/.env
+
+The application settings are managed by `app/core/settings.py` which uses Pydantic BaseSettings for type-safe configuration.
+
+```
+X_TOKEN=12345678910
+```
+
+## Step 2
+```
+uv sync
+uv run uvicorn app.main:app --reload
+```
+
+# 🎉 Done!
+
+- Swagger docs on `localhost:8000/docs`
+- Interactive API documentation with simple authentication
+
+# 🧹 Running Pre-commit Hooks Manually
+
+To manually run pre-commit hooks:
+
+1. Install the hooks defined in `.pre-commit-config.yaml`:
+   ```sh
+   pre-commit install
+   ```
+2. Run all pre-commit hooks on all files:
+   ```sh
+   pre-commit run --all-files
+   ```
+
+You can also run specific hooks or run them only on staged files. See the [pre-commit documentation](https://pre-commit.com/) for more options.

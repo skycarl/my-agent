@@ -1,0 +1,20 @@
+[project]
+name = "fastapi-boilerplate"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115.13",
+    "httpx>=0.28.0",
+    "loguru>=0.7.3",
+    "pre-commit>=4.2.0",
+    "pydantic>=2.11.7",
+    "pydantic-settings>=2.6.1",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=0.24.0",
+    "requests>=2.32.4",
+    "ruff>=0.12.0",
+    "tenacity>=9.1.2",
+    "uvicorn>=0.34.3",
+]
