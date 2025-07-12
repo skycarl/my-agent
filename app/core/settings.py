@@ -16,8 +16,20 @@ class Config(BaseSettings):
     
     # OpenAI Configuration
     openai_api_key: str = Field(default="", description="OpenAI API key for AI services")
-    openai_model: str = Field(default="gpt-4o-mini", description="OpenAI model to use for responses")
     
+    # Valid OpenAI models that can be used
+    valid_openai_models: list[str] = Field(
+        default=[
+            "o4-mini",
+            "o3", 
+            "o3-mini",
+            "gpt-4.1",
+            "gpt-4o",
+            "gpt-4o-mini"
+        ],
+        description="List of valid OpenAI models that can be used"
+    )
+
     # Telegram Bot Configuration
     telegram_bot_token: str = Field(default="", description="Telegram bot token")
     app_url: str = Field(default="http://localhost:8000", description="URL of the FastAPI app for internal communication")

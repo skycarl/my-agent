@@ -35,6 +35,7 @@ class APIMessage(BaseModel):
 class APIRequest(BaseModel):
     """Request format for the responses API."""
     messages: List[APIMessage]
+    model: str | None = None  # Optional model override
 
 
 class TelegramBot:
@@ -46,6 +47,7 @@ class TelegramBot:
         self.x_token = config.x_token
         self.authorized_user_id = config.authorized_user_id
         self.max_conversation_history = config.max_conversation_history
+        self.selected_model: str = "gpt-4o"
         self.application: Application | None = None
         
         # Conversation history storage: user_id -> List[APIMessage]
@@ -158,6 +160,8 @@ Available commands:
 /start - Start the bot
 /help - Show this help message
 /clear - Clear conversation history and start fresh
+/model <model_name> - Set the OpenAI model to use
+/current_model - Show the currently selected model
 
 Just send me any message and I'll respond using AI!
         """
@@ -243,7 +247,8 @@ Just send me any message and I'll respond using AI!
         try:
             # Prepare the request with conversation history
             api_request = APIRequest(
-                messages=conversation_history
+                messages=conversation_history,
+                model=self.selected_model
             )
             
             headers = {
@@ -286,8 +291,100 @@ Just send me any message and I'll respond using AI!
             logger.info(f"Error calling API: {e}")
             return "Sorry, there was an error processing your request."
     
+    async def set_model_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /model command to set the active OpenAI model."""
+        if not update.message or not update.message.from_user:
+            logger.warning("Received /model command without user information")
+            return
 
+        user_id = update.message.from_user.id
 
+        # Authorization check
+        if not self._is_authorized_user(user_id):
+            self._log_unauthorized_access(update, "model command")
+            return  # Silently ignore unauthorized users
+
+        new_model: str | None = None
+
+        # Prefer args provided by the CommandHandler
+        if hasattr(context, "args") and context.args:
+            new_model = context.args[0]
+        else:
+            parts = (update.message.text or "").split(maxsplit=1)
+            if len(parts) == 2:
+                new_model = parts[1].strip()
+
+        if not new_model:
+            await update.message.reply_text("Usage: /model <model_name>")
+            return
+
+        # Validate the model by fetching available models from API
+        try:
+            available_models = await self._get_available_models()
+            if new_model not in available_models:
+                await update.message.reply_text(
+                    f"❌ Invalid model '{new_model}'. Available models: {', '.join(available_models)}"
+                )
+                return
+        except Exception as e:
+            logger.warning(f"Failed to validate model {new_model}: {e}")
+            await update.message.reply_text("❌ Failed to validate model. Please try again.")
+            return
+
+        self.selected_model = new_model
+        logger.info(f"Authorized user {user_id} set model to {new_model}")
+        await update.message.reply_text(f"✅ Model set to {new_model}")
+
+    async def current_model_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /current_model command to display the current model."""
+        if not update.message or not update.message.from_user:
+            logger.warning("Received /current_model command without user information")
+            return
+
+        user_id = update.message.from_user.id
+
+        # Authorization check
+        if not self._is_authorized_user(user_id):
+            self._log_unauthorized_access(update, "current_model command")
+            return  # Silently ignore unauthorized users
+
+        try:
+            # Get available models from API
+            available_models = await self._get_available_models()
+            
+            response_text = f"🤖 Current model: {self.selected_model}\n\n"
+            response_text += f"📋 Available models: {', '.join(available_models)}"
+            
+            await update.message.reply_text(response_text)
+        except Exception as e:
+            logger.warning(f"Failed to get available models: {e}")
+            await update.message.reply_text(f"🤖 Current model: {self.selected_model}")
+
+    async def _get_available_models(self) -> list[str]:
+        """Get available models from the API."""
+        try:
+            headers = {
+                "X-Token": self.x_token
+            }
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.app_url}/models",
+                    headers=headers,
+                    timeout=10.0
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    return data.get("models", [])
+                else:
+                    logger.warning(f"Failed to get models: {response.status_code}")
+                    return []
+                    
+        except Exception as e:
+            logger.warning(f"Error getting available models: {e}")
+            return []
+    
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle errors."""
         logger.error(f"Bot error occurred: {context.error}")
@@ -302,6 +399,8 @@ Just send me any message and I'll respond using AI!
         self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("clear", self.clear_command))
+        self.application.add_handler(CommandHandler("model", self.set_model_command))
+        self.application.add_handler(CommandHandler("current_model", self.current_model_command))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         self.application.add_error_handler(self.error_handler)
         logger.info("Bot handlers set up successfully")

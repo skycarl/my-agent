@@ -21,6 +21,10 @@ class OpenAIClient:
         self._client = None
         logger.debug("OpenAI client initialized")
         
+        # Test API key on startup if configured
+        if self.is_configured():
+            self._test_api_key()
+        
     @property
     def client(self) -> OpenAI:
         """Get the OpenAI client instance."""
@@ -50,7 +54,32 @@ class OpenAIClient:
             )
         logger.debug("OpenAI configuration validated successfully")
 
-    async def create_response(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _test_api_key(self) -> None:
+        """Test the OpenAI API key by making a simple request."""
+        try:
+            logger.debug("Testing OpenAI API key validity...")
+            
+            # Create a temporary client for testing
+            test_client = OpenAI(api_key=config.openai_api_key)
+            
+            # Make a simple request to test the API key
+            response = test_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "Hello"}],
+                max_tokens=5
+            )
+            
+            logger.info("OpenAI API key validation successful")
+            logger.debug(f"Test response ID: {response.id}")
+            
+        except Exception as e:
+            logger.error(f"OpenAI API key validation failed: {str(e)}")
+            raise ValueError(
+                f"Invalid OpenAI API key. Please check your OPENAI_API_KEY environment variable. "
+                f"Error: {str(e)}"
+            )
+
+    async def create_response(self, messages: List[Dict[str, Any]], model: str = "gpt-4o") -> Dict[str, Any]:
         """
         Create a response using the OpenAI Responses API with MCP tools integration.
         
@@ -61,7 +90,7 @@ class OpenAIClient:
             Dict containing the response data
         """
         try:
-            logger.debug(f"Calling OpenAI API with model: {config.openai_model}")
+            logger.debug(f"Calling OpenAI API with model: {model}")
             logger.debug(f"Request messages: {messages}")
             
             # Get available MCP tools
@@ -70,7 +99,7 @@ class OpenAIClient:
             
             # Create initial request parameters
             request_params = {
-                "model": config.openai_model,
+                "model": model,
                 "messages": messages  # type: ignore
             }
             
@@ -130,7 +159,7 @@ class OpenAIClient:
                 logger.debug("Making second request to OpenAI with tool results")
                 
                 final_response = self.client.chat.completions.create(
-                    model=config.openai_model,
+                    model=model,
                     messages=messages  # type: ignore
                 )
                 

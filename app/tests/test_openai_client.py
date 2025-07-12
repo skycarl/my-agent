@@ -15,7 +15,8 @@ def test_openai_client_not_configured():
     config = Config(openai_api_key="")
     
     with patch('app.core.openai_client.config', config):
-        client = OpenAIClient()
+        with patch.object(OpenAIClient, '_test_api_key', return_value=None):
+            client = OpenAIClient()
         
         assert not client.is_configured()
         assert client.get_api_key() is None
@@ -30,7 +31,8 @@ def test_openai_client_configured():
     config = Config(openai_api_key=test_key)
     
     with patch('app.core.openai_client.config', config):
-        client = OpenAIClient()
+        with patch.object(OpenAIClient, '_test_api_key', return_value=None):
+            client = OpenAIClient()
         
         assert client.is_configured()
         assert client.get_api_key() == test_key
@@ -44,7 +46,8 @@ def test_openai_client_whitespace_key():
     config = Config(openai_api_key="   ")
     
     with patch('app.core.openai_client.config', config):
-        client = OpenAIClient()
+        with patch.object(OpenAIClient, '_test_api_key', return_value=None):
+            client = OpenAIClient()
         
         assert not client.is_configured()
         assert client.get_api_key() is None
@@ -59,7 +62,8 @@ def test_openai_client_with_key_containing_spaces():
     config = Config(openai_api_key=test_key)
     
     with patch('app.core.openai_client.config', config):
-        client = OpenAIClient()
+        with patch.object(OpenAIClient, '_test_api_key', return_value=None):
+            client = OpenAIClient()
         
         # Should still be configured because we have non-whitespace content
         assert client.is_configured()
