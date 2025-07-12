@@ -36,7 +36,7 @@ services:
     networks:
       - app-network
     volumes:
-      - ./my_mcp/garden:/app/my_mcp/garden
+      - ./garden_db.json:/app/garden_db.json
 
 networks:
   app-network:

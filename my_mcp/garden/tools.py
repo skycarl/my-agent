@@ -38,7 +38,7 @@ class ProduceCountsResponse(BaseModel):
 
 
 # Database file path
-DB_FILE = Path(__file__).parent / "garden_db.json"
+DB_FILE = Path(__file__).parent.parent.parent / "garden_db.json"
 
 # Global database instance
 garden_db = GardenDB.load_from_file(DB_FILE)
