@@ -5,9 +5,9 @@ services:
     build: 
       context: .
       dockerfile: .docker/Dockerfile
-    command: bash -c "uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    command: bash -c "uv run uvicorn app.main:app --host 0.0.0.0 --port 8001"
     ports:
-      - 8000:8000
+      - 8001:8001
     restart: always
     networks:
       - app-network
@@ -31,7 +31,7 @@ services:
       dockerfile: .docker/Dockerfile
     command: bash -c "uv run python -m my_mcp.main"
     ports:
-      - 8001:8001
+      - 8002:8002
     restart: always
     networks:
       - app-network
