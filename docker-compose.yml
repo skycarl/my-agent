@@ -1,7 +1,7 @@
 services:
 
   app:
-    container_name: boilerplate_app
+    container_name: app
     build: 
       context: .
       dockerfile: .docker/Dockerfile
@@ -9,3 +9,35 @@ services:
     ports:
       - 8000:8000
     restart: always
+    networks:
+      - app-network
+
+  telegram-bot:
+    container_name: telegram_bot
+    build: 
+      context: .
+      dockerfile: .docker/Dockerfile
+    command: bash -c "uv run python -m app.telegram.main"
+    depends_on:
+      - app
+    restart: always
+    networks:
+      - app-network
+
+  mcp-server:
+    container_name: mcp_server
+    build: 
+      context: .
+      dockerfile: .docker/Dockerfile
+    command: bash -c "uv run python -m my_mcp.main"
+    ports:
+      - 8001:8001
+    restart: always
+    networks:
+      - app-network
+    volumes:
+      - ./my_mcp/garden:/app/my_mcp/garden
+
+networks:
+  app-network:
+    driver: bridge

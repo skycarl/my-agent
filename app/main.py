@@ -1,6 +1,5 @@
 from fastapi import FastAPI, APIRouter
 
-from app.sneakers import sneakers_router
 from app.core.main_router import router as main_router
 from app.core.logger import init_logging
 
@@ -9,7 +8,6 @@ root_router = APIRouter()
 app = FastAPI(title="FastAPI Boiler Plate")
 
 app.include_router(main_router)
-app.include_router(sneakers_router)
 app.include_router(root_router)
 
 init_logging()

@@ -46,7 +46,7 @@ def format_record(record: dict) -> str:
     >>>                      {'age': 27, 'is_active': True, 'name': 'Alex'}]}]
     """
 
-    format_string = LOGURU_FORMAT
+    format_string: str = str(LOGURU_FORMAT)
     if record["extra"].get("payload") is not None:
         record["extra"]["payload"] = pformat(
             record["extra"]["payload"], indent=4, compact=True, width=88
@@ -55,6 +55,16 @@ def format_record(record: dict) -> str:
 
     format_string += "{exception}\n"
     return format_string
+
+
+def get_log_level() -> str:
+    """Get the log level from settings, with fallback to avoid circular import."""
+    try:
+        from app.core.settings import config
+        return config.log_level.upper()
+    except ImportError:
+        # Fallback if settings not available during import
+        return "INFO"
 
 
 def init_logging():
@@ -89,8 +99,15 @@ def init_logging():
     intercept_handler = InterceptHandler()
     logging.getLogger("uvicorn").handlers = [intercept_handler]
 
+    # Get the log level from settings
+    log_level = get_log_level()
+    
     # set logs output, level and format
     logger.configure(
-        handlers=[{"sink": sys.stdout, "level": logging.INFO, "format": format_record}]
+        handlers=[{
+            "sink": sys.stdout, 
+            "level": log_level, 
+            "format": format_record
+        }]  # type: ignore
     )
-    logger.add("app.log")
+    logger.add("app.log", level=log_level)
