@@ -1,0 +1,161 @@
+---
+alwaysApply: false
+---
+
+# Configuration Management Rules
+
+## Settings Pattern
+
+When implementing new features that require configuration, follow this established pattern:
+
+### 1. Configuration Class Structure
+
+Use Pydantic Settings with the following structure in `app/core/settings.py`:
+
+```python
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Config(BaseSettings):
+    """Application config."""
+    
+    # Group settings with clear comments
+    # Feature Name Configuration
+    feature_setting: str = Field(default="default_value", description="Description of what this setting does")
+    feature_enabled: bool = Field(default=True, description="Enable/disable feature")
+    
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+```
+
+### 2. Environment Variable Naming
+
+- Use UPPER_SNAKE_CASE for environment variables
+- Match the Field name converted to uppercase with underscores
+- Example: `feature_setting` → `FEATURE_SETTING`
+
+### 3. Default Values and Descriptions
+
+- Always provide meaningful default values
+- Include descriptive docstrings for each Field
+- Use appropriate types (str, int, bool, etc.)
+- For sensitive data (API keys, tokens), use empty string as default
+
+### 4. Global Config Instance
+
+Use the singleton pattern for config access:
+
+```python
+# Global config instance
+_config = None
+
+def get_config() -> Config:
+    """Get the global config instance, creating it if it doesn't exist."""
+    global _config
+    if _config is None:
+        _config = Config()
+    return _config
+
+# Create the global config instance
+config = get_config()
+```
+
+### 5. Usage in Code
+
+Import and use config in your modules:
+
+```python
+from app.core.settings import config
+
+# Access settings
+api_key = config.feature_setting
+is_enabled = config.feature_enabled
+```
+
+### 6. Environment File Updates
+
+When adding new settings:
+
+1. Add the setting to `Config` class in `app/core/settings.py`
+2. Add corresponding environment variable to `env.example` with:
+   - Clear comment explaining the setting
+   - Default value
+   - Usage instructions if needed
+3. Document any special requirements or dependencies
+
+### 7. Testing Configuration
+
+Use the `create_test_config` method for testing:
+
+```python
+from app.core.settings import Config
+
+# Create test config without loading from .env
+test_config = Config.create_test_config(
+    feature_setting="test_value",
+    feature_enabled=False
+)
+```
+
+### 8. Validation and Error Handling
+
+- Validate configuration in your feature initialization
+- Provide clear error messages when required settings are missing
+- Use the `is_configured()` pattern for optional features
+
+### 9. Documentation
+
+- Update `env.example` with all new environment variables
+- Include clear comments explaining each setting
+- Document default values and expected formats
+- Add usage examples for complex configurations
+
+### 10. Security Considerations
+
+- Never commit actual API keys or tokens to version control
+- Use empty string defaults for sensitive settings
+- Validate and sanitize configuration values where appropriate
+- Use environment-specific configuration for different deployment environments
+
+## Example Implementation
+
+When adding a new feature that requires configuration:
+
+1. **Add to settings.py:**
+```python
+# New Feature Configuration
+new_feature_api_key: str = Field(default="", description="API key for new feature")
+new_feature_url: str = Field(default="https://api.example.com", description="Base URL for new feature API")
+new_feature_timeout: int = Field(default=30, description="Timeout in seconds for API calls")
+```
+
+2. **Add to env.example:**
+```bash
+# New Feature Configuration
+# API key for the new feature (get from provider dashboard)
+NEW_FEATURE_API_KEY=
+# Base URL for the new feature API (defaults to https://api.example.com)
+NEW_FEATURE_URL=https://api.example.com
+# Timeout in seconds for API calls (defaults to 30)
+NEW_FEATURE_TIMEOUT=30
+```
+
+3. **Use in your feature:**
+```python
+from app.core.settings import config
+
+class NewFeature:
+    def __init__(self):
+        self.api_key = config.new_feature_api_key
+        self.base_url = config.new_feature_url
+        self.timeout = config.new_feature_timeout
+        
+        if not self.api_key:
+            raise ValueError("NEW_FEATURE_API_KEY is required")
+```
+
+This pattern ensures consistent, maintainable, and secure configuration management across the entire application. 
