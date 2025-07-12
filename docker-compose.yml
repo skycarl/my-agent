@@ -36,7 +36,9 @@ services:
     networks:
       - app-network
     volumes:
-      - ./garden_db.json:/app/garden_db.json
+      - .:/app/workspace
+    environment:
+      - GARDEN_DB_PATH=/app/workspace/garden_db.json
 
 networks:
   app-network:

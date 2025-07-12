@@ -28,6 +28,9 @@ class Config(BaseSettings):
     mcp_server_url: str = Field(default="http://localhost:8001/mcp", description="URL of the MCP server")
     enable_mcp_tools: bool = Field(default=True, description="Enable MCP tools integration")
     
+    # Garden Database Configuration
+    garden_db_path: str = Field(default="garden_db.json", description="Path to the garden database JSON file")
+    
     # Logging Configuration
     log_level: str = Field(default="INFO", description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
 
