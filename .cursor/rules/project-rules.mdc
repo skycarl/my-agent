@@ -1,7 +1,6 @@
 ---
-alwaysApply: false
+alwaysApply: true
 ---
-
 # Configuration Management Rules
 
 ## Settings Pattern
@@ -121,6 +120,49 @@ test_config = Config.create_test_config(
 - Validate and sanitize configuration values where appropriate
 - Use environment-specific configuration for different deployment environments
 
+## Quality Assurance Requirements
+
+### Feature Completion Checklist
+
+Before considering any feature complete, ensure the following quality checks pass:
+
+#### 1. Unit Tests
+- Run the test suite using `make test`
+- All tests must pass without errors or failures
+- If new functionality is added, include corresponding unit tests
+- Tests should cover both happy path and edge cases
+
+#### 2. Code Quality
+- Run linting using `make lint`
+- All linting checks must pass without warnings or errors
+- Fix any code style issues identified by the linter
+- Ensure code follows the project's style guidelines
+
+#### 3. Pre-Commit Validation
+Before committing any feature:
+1. Run `make test` to verify all tests pass
+2. Run `make lint` to ensure code quality standards are met
+3. Only proceed with the commit if both checks pass
+4. If either check fails, fix the issues and re-run the checks
+
+#### 4. Continuous Integration
+- These same checks are enforced in CI/CD pipelines
+- Features should not be merged if tests or linting fail
+- Address any CI failures before requesting code review
+
+### Example Workflow
+
+```bash
+# After implementing a feature
+make test    # Verify all tests pass
+make lint    # Verify code quality standards
+
+# If both pass, proceed with commit
+# If either fails, fix issues and re-run checks
+```
+
+This ensures that all code meets quality standards and maintains the project's reliability and maintainability.
+
 ## Example Implementation
 
 When adding a new feature that requires configuration:
@@ -156,6 +198,143 @@ class NewFeature:
         
         if not self.api_key:
             raise ValueError("NEW_FEATURE_API_KEY is required")
+```
+
+4. **Add tests for your feature:**
+Use pytest for unit tests. Add the tests to the `app/tests` directory. If you need to use a temporary directory, use the built in pytest temporary directory fixtures (e.g., `tmp_path` or `tmp_path_factory` or `tmpdir`). If you are testing several sets of inputs and outputs against the same test machinery, consider using parameterized tests with `@pytest.mark.parametrize`. 
+
+### Test File Organization
+- Create test files in `app/tests/` directory
+- Name test files with `test_` prefix (e.g., `test_new_feature.py`)
+- Group related tests in the same file
+- Use descriptive test function names that explain what is being tested
+
+### Test Structure and Best Practices
+```python
+import pytest
+from unittest.mock import Mock, patch
+from app.core.settings import config
+
+# Basic test structure
+def test_feature_initialization():
+    """Test that feature initializes correctly with valid config."""
+    # Arrange
+    expected_api_key = "test_key"
+    
+    # Act
+    feature = NewFeature()
+    
+    # Assert
+    assert feature.api_key == expected_api_key
+    assert feature.base_url == "https://api.example.com"
+
+def test_feature_with_missing_api_key():
+    """Test that feature raises error when API key is missing."""
+    # Arrange
+    with patch.object(config, 'new_feature_api_key', ''):
+        # Act & Assert
+        with pytest.raises(ValueError, match="NEW_FEATURE_API_KEY is required"):
+            NewFeature()
+
+# Using pytest fixtures for setup/teardown
+@pytest.fixture
+def mock_config():
+    """Fixture to provide test configuration."""
+    with patch.object(config, 'new_feature_api_key', 'test_key'):
+        with patch.object(config, 'new_feature_url', 'https://test.api.com'):
+            yield config
+
+def test_feature_with_fixture(mock_config):
+    """Test using fixture for configuration."""
+    feature = NewFeature()
+    assert feature.api_key == 'test_key'
+    assert feature.base_url == 'https://test.api.com'
+
+# Parameterized tests for multiple scenarios
+@pytest.mark.parametrize("api_key,url,expected_error", [
+    ("", "https://api.example.com", "NEW_FEATURE_API_KEY is required"),
+    ("valid_key", "", "NEW_FEATURE_URL is required"),
+    ("", "", "NEW_FEATURE_API_KEY is required"),
+])
+def test_feature_validation_errors(api_key, url, expected_error):
+    """Test various validation error scenarios."""
+    with patch.object(config, 'new_feature_api_key', api_key):
+        with patch.object(config, 'new_feature_url', url):
+            with pytest.raises(ValueError, match=expected_error):
+                NewFeature()
+
+# Using temporary directories
+def test_feature_file_operations(tmp_path):
+    """Test file operations using temporary directory."""
+    test_file = tmp_path / "test_config.json"
+    test_file.write_text('{"key": "value"}')
+    
+    feature = NewFeature()
+    result = feature.load_config_from_file(test_file)
+    
+    assert result["key"] == "value"
+
+# Async tests (if your feature uses async)
+@pytest.mark.asyncio
+async def test_async_feature():
+    """Test async feature functionality."""
+    feature = AsyncNewFeature()
+    result = await feature.async_operation()
+    assert result is not None
+
+# Mocking external dependencies
+@patch('requests.get')
+def test_feature_api_call(mock_get):
+    """Test API calls with mocked requests."""
+    mock_get.return_value.status_code = 200
+    mock_get.return_value.json.return_value = {"status": "success"}
+    
+    feature = NewFeature()
+    result = feature.make_api_call()
+    
+    assert result["status"] == "success"
+    mock_get.assert_called_once()
+
+# Testing configuration validation
+def test_config_validation():
+    """Test configuration validation logic."""
+    # Test valid config
+    valid_config = {
+        'new_feature_api_key': 'valid_key',
+        'new_feature_url': 'https://api.example.com',
+        'new_feature_timeout': 30
+    }
+    assert is_valid_config(valid_config) is True
+    
+    # Test invalid config
+    invalid_config = {
+        'new_feature_api_key': '',
+        'new_feature_url': 'https://api.example.com'
+    }
+    assert is_valid_config(invalid_config) is False
+```
+
+### Test Categories to Cover
+- **Happy Path**: Normal operation with valid inputs
+- **Error Handling**: Invalid inputs, missing configuration, network errors
+- **Edge Cases**: Boundary values, empty strings, None values
+- **Integration**: How the feature works with other components
+- **Performance**: Timeouts, large data sets (if applicable)
+
+### Testing Guidelines
+- Aim for high test coverage (80%+ for critical paths)
+- Use descriptive test names that explain the scenario
+- Group related tests using classes or descriptive function names
+- Use fixtures for common setup and teardown
+- Mock external dependencies to isolate unit tests
+- Test both success and failure scenarios
+- Include integration tests for complex features
+
+
+5. **Run quality checks:**
+```bash
+make test  # Ensure all tests pass
+make lint  # Ensure code quality standards are met
 ```
 
 This pattern ensures consistent, maintainable, and secure configuration management across the entire application. 
