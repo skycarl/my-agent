@@ -13,38 +13,51 @@ class Config(BaseSettings):
 
     # Authentication
     x_token: str = Field(default="12345678910", description="API authentication token")
-    
+
     # OpenAI Configuration
-    openai_api_key: str = Field(default="", description="OpenAI API key for AI services")
-    
+    openai_api_key: str = Field(
+        default="", description="OpenAI API key for AI services"
+    )
+
     # Valid OpenAI models that can be used
     valid_openai_models: list[str] = Field(
-        default=[
-            "o4-mini",
-            "o3", 
-            "o3-mini",
-            "gpt-4.1",
-            "gpt-4o",
-            "gpt-4o-mini"
-        ],
-        description="List of valid OpenAI models that can be used"
+        default=["o4-mini", "o3", "o3-mini", "gpt-4.1", "gpt-4o", "gpt-4o-mini"],
+        description="List of valid OpenAI models that can be used",
     )
 
     # Telegram Bot Configuration
     telegram_bot_token: str = Field(default="", description="Telegram bot token")
-    app_url: str = Field(default="http://localhost:8000", description="URL of the FastAPI app for internal communication")
-    authorized_user_id: int = Field(default=0, description="Authorized Telegram user ID (only this user can use the bot)")
-    max_conversation_history: int = Field(default=10, description="Maximum number of messages to keep in conversation history")
-    
+    app_url: str = Field(
+        default="http://localhost:8000",
+        description="URL of the FastAPI app for internal communication",
+    )
+    authorized_user_id: int = Field(
+        default=0,
+        description="Authorized Telegram user ID (only this user can use the bot)",
+    )
+    max_conversation_history: int = Field(
+        default=10,
+        description="Maximum number of messages to keep in conversation history",
+    )
+
     # MCP Configuration
-    mcp_server_url: str = Field(default="http://localhost:8001/mcp", description="URL of the MCP server")
-    enable_mcp_tools: bool = Field(default=True, description="Enable MCP tools integration")
-    
+    mcp_server_url: str = Field(
+        default="http://localhost:8001/mcp", description="URL of the MCP server"
+    )
+    enable_mcp_tools: bool = Field(
+        default=True, description="Enable MCP tools integration"
+    )
+
     # Garden Database Configuration
-    garden_db_path: str = Field(default="garden_db.json", description="Path to the garden database JSON file")
-    
+    garden_db_path: str = Field(
+        default="garden_db.json", description="Path to the garden database JSON file"
+    )
+
     # Logging Configuration
-    log_level: str = Field(default="INFO", description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
+    log_level: str = Field(
+        default="INFO",
+        description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -57,7 +70,7 @@ class Config(BaseSettings):
     def create_test_config(cls, **kwargs) -> "Config":
         """Create a config instance for testing without loading from .env file or environment variables."""
         from pydantic_settings import PydanticBaseSettingsSource
-        
+
         # Create a temporary class that only uses init settings (defaults + passed kwargs)
         class TestConfig(cls):
             @classmethod
@@ -72,7 +85,7 @@ class Config(BaseSettings):
                 # Only use init_settings (default values + passed kwargs)
                 # Exclude env_settings and dotenv_settings to avoid loading from .env or environment
                 return (init_settings,)
-        
+
         return TestConfig(**kwargs)
 
 

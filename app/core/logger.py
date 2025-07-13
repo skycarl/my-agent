@@ -61,6 +61,7 @@ def get_log_level() -> str:
     """Get the log level from settings, with fallback to avoid circular import."""
     try:
         from app.core.settings import config
+
         return config.log_level.upper()
     except ImportError:
         # Fallback if settings not available during import
@@ -101,13 +102,9 @@ def init_logging():
 
     # Get the log level from settings
     log_level = get_log_level()
-    
+
     # set logs output, level and format
     logger.configure(
-        handlers=[{
-            "sink": sys.stdout, 
-            "level": log_level, 
-            "format": format_record
-        }]  # type: ignore
+        handlers=[{"sink": sys.stdout, "level": log_level, "format": format_record}]  # type: ignore
     )
     logger.add("app.log", level=log_level)
