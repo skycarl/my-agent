@@ -292,7 +292,7 @@ class TestTelegramBot:
 
     @pytest.mark.asyncio
     async def test_set_model_command(self):
-        """Test /model command sets the model correctly."""
+        """Test /model command shows model selection interface."""
         with patch("app.telegram.bot.config") as mock_config:
             mock_config.telegram_bot_token = "test_token"
             mock_config.app_url = "http://localhost:8000"
@@ -320,48 +320,23 @@ class TestTelegramBot:
                 mock_update.message.reply_text = AsyncMock()
                 mock_update.message.from_user.id = 123
                 mock_update.message.from_user.username = "testuser"
-                mock_update.message.text = "/model gpt-4o-mini"
+                mock_update.message.text = "/model"
 
                 mock_context = Mock()
-                mock_context.args = ["gpt-4o-mini"]
+                mock_context.args = []
 
                 await bot.set_model_command(mock_update, mock_context)
 
-                assert bot.selected_model == "gpt-4o-mini"
+                # Should not change the model directly, just show interface
+                assert bot.selected_model == "gpt-4o"  # Default unchanged
                 mock_update.message.reply_text.assert_called_once()
+                call_args = mock_update.message.reply_text.call_args[0][0]
+                assert "Current model" in call_args
+                assert "Select a model to use" in call_args
 
     @pytest.mark.asyncio
-    async def test_current_model_command(self):
-        """Test /current_model command returns the correct model."""
-        with patch("app.telegram.bot.config") as mock_config:
-            mock_config.telegram_bot_token = "test_token"
-            mock_config.app_url = "http://localhost:8000"
-            mock_config.x_token = "test_x_token"
-            mock_config.max_conversation_history = 10
-            mock_config.authorized_user_id = 123
-
-            bot = TelegramBot()
-            bot.selected_model = "gpt-4o-mini"
-
-            # Mock update and context
-            mock_update = Mock()
-            mock_update.message.reply_text = AsyncMock()
-            mock_update.message.from_user.id = 123
-            mock_update.message.from_user.username = "testuser"
-            mock_update.message.text = "/current_model"
-
-            mock_context = Mock()
-            mock_context.args = []
-
-            await bot.current_model_command(mock_update, mock_context)
-
-            mock_update.message.reply_text.assert_called_once()
-            call_args = mock_update.message.reply_text.call_args[0][0]
-            assert "gpt-4o-mini" in call_args
-
-    @pytest.mark.asyncio
-    async def test_set_model_command_with_invalid_model(self):
-        """Test /model command with invalid model."""
+    async def test_set_model_command_with_api_failure(self):
+        """Test /model command when API fails to return models."""
         with patch("app.telegram.bot.config") as mock_config:
             mock_config.telegram_bot_token = "test_token"
             mock_config.app_url = "http://localhost:8000"
@@ -371,13 +346,9 @@ class TestTelegramBot:
 
             bot = TelegramBot()
 
-            # Mock API response for available models
+            # Mock API failure
             mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "models": ["gpt-4o", "gpt-4o-mini"],
-                "default_model": "gpt-4o",
-            }
+            mock_response.status_code = 500
 
             with patch("httpx.AsyncClient") as mock_client:
                 mock_client.return_value.__aenter__.return_value.get = AsyncMock(
@@ -389,10 +360,10 @@ class TestTelegramBot:
                 mock_update.message.reply_text = AsyncMock()
                 mock_update.message.from_user.id = 123
                 mock_update.message.from_user.username = "testuser"
-                mock_update.message.text = "/model invalid-model"
+                mock_update.message.text = "/model"
 
                 mock_context = Mock()
-                mock_context.args = ["invalid-model"]
+                mock_context.args = []
 
                 await bot.set_model_command(mock_update, mock_context)
 
@@ -400,51 +371,7 @@ class TestTelegramBot:
                 assert bot.selected_model == "gpt-4o"  # Default
                 mock_update.message.reply_text.assert_called_once()
                 call_args = mock_update.message.reply_text.call_args[0][0]
-                assert "Invalid model" in call_args
-
-    @pytest.mark.asyncio
-    async def test_current_model_command_with_api(self):
-        """Test /current_model command with API integration."""
-        with patch("app.telegram.bot.config") as mock_config:
-            mock_config.telegram_bot_token = "test_token"
-            mock_config.app_url = "http://localhost:8000"
-            mock_config.x_token = "test_x_token"
-            mock_config.max_conversation_history = 10
-            mock_config.authorized_user_id = 123
-
-            bot = TelegramBot()
-            bot.selected_model = "gpt-4o-mini"
-
-            # Mock API response for available models
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "models": ["gpt-4o", "gpt-4o-mini", "gpt-4"],
-                "default_model": "gpt-4o",
-            }
-
-            with patch("httpx.AsyncClient") as mock_client:
-                mock_client.return_value.__aenter__.return_value.get = AsyncMock(
-                    return_value=mock_response
-                )
-
-                # Mock update and context
-                mock_update = Mock()
-                mock_update.message.reply_text = AsyncMock()
-                mock_update.message.from_user.id = 123
-                mock_update.message.from_user.username = "testuser"
-                mock_update.message.text = "/current_model"
-
-                mock_context = Mock()
-                mock_context.args = []
-
-                await bot.current_model_command(mock_update, mock_context)
-
-                mock_update.message.reply_text.assert_called_once()
-                call_args = mock_update.message.reply_text.call_args[0][0]
-                assert "gpt-4o-mini" in call_args
-                assert "gpt-4o" in call_args
-                assert "gpt-4" in call_args
+                assert "Failed to fetch available models" in call_args
 
     @pytest.mark.asyncio
     async def test_get_available_models_success(self):

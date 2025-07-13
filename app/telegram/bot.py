@@ -7,11 +7,12 @@ from typing import List
 import httpx
 from loguru import logger
 from pydantic import BaseModel, ValidationError
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     filters,
     ContextTypes,
 )
@@ -181,8 +182,7 @@ Available commands:
 /start - Start the bot
 /help - Show this help message
 /clear - Clear conversation history and start fresh
-/model <model_name> - Set the OpenAI model to use
-/current_model - Show the currently selected model
+/model - Select the OpenAI model to use
 
 Just send me any message and I'll respond using AI!
         """
@@ -337,7 +337,7 @@ Just send me any message and I'll respond using AI!
     async def set_model_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
-        """Handle /model command to set the active OpenAI model."""
+        """Handle /model command to show model selection interface."""
         if not update.message or not update.message.from_user:
             logger.warning("Received /model command without user information")
             return
@@ -349,65 +349,55 @@ Just send me any message and I'll respond using AI!
             self._log_unauthorized_access(update, "model command")
             return  # Silently ignore unauthorized users
 
-        new_model: str | None = None
-
-        # Prefer args provided by the CommandHandler
-        if hasattr(context, "args") and context.args:
-            new_model = context.args[0]
-        else:
-            parts = (update.message.text or "").split(maxsplit=1)
-            if len(parts) == 2:
-                new_model = parts[1].strip()
-
-        if not new_model:
-            await update.message.reply_text("Usage: /model <model_name>")
-            return
-
-        # Validate the model by fetching available models from API
-        try:
-            available_models = await self._get_available_models()
-            if new_model not in available_models:
-                await update.message.reply_text(
-                    f"❌ Invalid model '{new_model}'. Available models: {', '.join(available_models)}"
-                )
-                return
-        except Exception as e:
-            logger.warning(f"Failed to validate model {new_model}: {e}")
-            await update.message.reply_text(
-                "❌ Failed to validate model. Please try again."
-            )
-            return
-
-        self.selected_model = new_model
-        logger.info(f"Authorized user {user_id} set model to {new_model}")
-        await update.message.reply_text(f"✅ Model set to {new_model}")
-
-    async def current_model_command(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
-        """Handle /current_model command to display the current model."""
-        if not update.message or not update.message.from_user:
-            logger.warning("Received /current_model command without user information")
-            return
-
-        user_id = update.message.from_user.id
-
-        # Authorization check
-        if not self._is_authorized_user(user_id):
-            self._log_unauthorized_access(update, "current_model command")
-            return  # Silently ignore unauthorized users
-
         try:
             # Get available models from API
             available_models = await self._get_available_models()
 
-            response_text = f"🤖 Current model: {self.selected_model}\n\n"
-            response_text += f"📋 Available models: {', '.join(available_models)}"
+            if not available_models:
+                await update.message.reply_text(
+                    "❌ Failed to fetch available models. Please try again."
+                )
+                return
 
-            await update.message.reply_text(response_text)
+            # Create inline keyboard with model buttons (3 wide)
+            keyboard = []
+            row = []
+
+            for i, model in enumerate(available_models):
+                # Add checkmark if this is the current model
+                button_text = f"✅ {model}" if model == self.selected_model else model
+                row.append(
+                    InlineKeyboardButton(button_text, callback_data=f"model_{model}")
+                )
+
+                # Start new row every 3 buttons
+                if (i + 1) % 3 == 0:
+                    keyboard.append(row)
+                    row = []
+
+            # Add remaining buttons if any
+            if row:
+                keyboard.append(row)
+
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            message_text = (
+                f"🤖 Current model: **{self.selected_model}**\n\nSelect a model to use:"
+            )
+
+            await update.message.reply_text(
+                message_text, reply_markup=reply_markup, parse_mode="Markdown"
+            )
+
+            logger.info(
+                f"Authorized user {user_id} requested model selection interface"
+            )
+
         except Exception as e:
-            logger.warning(f"Failed to get available models: {e}")
-            await update.message.reply_text(f"🤖 Current model: {self.selected_model}")
+            logger.warning(f"Failed to show model selection interface: {e}")
+            await update.message.reply_text(
+                "❌ Failed to load model options. Please try again."
+            )
 
     async def _get_available_models(self) -> list[str]:
         """Get available models from the API."""
@@ -430,6 +420,91 @@ Just send me any message and I'll respond using AI!
             logger.warning(f"Error getting available models: {e}")
             return []
 
+    async def model_callback_handler(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle model selection button callbacks."""
+        if not update.callback_query or not update.callback_query.from_user:
+            logger.warning("Received model callback without user information")
+            return
+
+        user_id = update.callback_query.from_user.id
+
+        # Authorization check
+        if not self._is_authorized_user(user_id):
+            self._log_unauthorized_access(update, "model callback")
+            return  # Silently ignore unauthorized users
+
+        try:
+            # Extract model name from callback data
+            callback_data = update.callback_query.data
+            if not callback_data or not callback_data.startswith("model_"):
+                logger.warning(f"Invalid callback data: {callback_data}")
+                return
+
+            selected_model = callback_data[6:]  # Remove "model_" prefix
+
+            # Validate the model by fetching available models from API
+            available_models = await self._get_available_models()
+            if selected_model not in available_models:
+                await update.callback_query.answer("❌ Invalid model selected")
+                return
+
+            # Update the selected model
+            self.selected_model = selected_model
+            logger.info(f"Authorized user {user_id} set model to {selected_model}")
+
+            # Answer the callback query
+            await update.callback_query.answer(f"✅ Model set to {selected_model}")
+
+            # Update the message to show the new selection
+            try:
+                # Get available models again for the updated keyboard
+                available_models = await self._get_available_models()
+
+                # Create updated inline keyboard
+                keyboard = []
+                row = []
+
+                for i, model in enumerate(available_models):
+                    # Add checkmark if this is the current model
+                    button_text = (
+                        f"✅ {model}" if model == self.selected_model else model
+                    )
+                    row.append(
+                        InlineKeyboardButton(
+                            button_text, callback_data=f"model_{model}"
+                        )
+                    )
+
+                    # Start new row every 3 buttons
+                    if (i + 1) % 3 == 0:
+                        keyboard.append(row)
+                        row = []
+
+                # Add remaining buttons if any
+                if row:
+                    keyboard.append(row)
+
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                message_text = f"🤖 Current model: **{self.selected_model}**\n\nSelect a model to use:"
+
+                await update.callback_query.edit_message_text(
+                    message_text, reply_markup=reply_markup, parse_mode="Markdown"
+                )
+
+            except Exception as e:
+                logger.warning(f"Failed to update message after model selection: {e}")
+                # If we can't update the message, at least answer the callback
+                await update.callback_query.answer(f"✅ Model set to {selected_model}")
+
+        except Exception as e:
+            logger.warning(f"Error handling model callback: {e}")
+            await update.callback_query.answer(
+                "❌ Failed to set model. Please try again."
+            )
+
     async def error_handler(
         self, update: object, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -448,11 +523,9 @@ Just send me any message and I'll respond using AI!
         self.application.add_handler(CommandHandler("clear", self.clear_command))
         self.application.add_handler(CommandHandler("model", self.set_model_command))
         self.application.add_handler(
-            CommandHandler("current_model", self.current_model_command)
-        )
-        self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )
+        self.application.add_handler(CallbackQueryHandler(self.model_callback_handler))
         self.application.add_error_handler(self.error_handler)
         logger.info("Bot handlers set up successfully")
 
