@@ -17,7 +17,7 @@ services:
     build: 
       context: .
       dockerfile: .docker/Dockerfile
-    command: bash -c "uv run python -m app.telegram.main"
+    command: bash -c "uv run python -m telegram_bot.main"
     depends_on:
       - app
     restart: always

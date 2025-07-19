@@ -2,7 +2,7 @@
 Main entry point for the Telegram bot.
 """
 
-from app.telegram.bot import TelegramBot
+from telegram_bot.bot import TelegramBot
 
 
 def main():

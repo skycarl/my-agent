@@ -5,7 +5,7 @@ Tests for the Telegram bot module.
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
-from app.telegram.bot import TelegramMessage, APIMessage, APIRequest, TelegramBot
+from telegram_bot.bot import TelegramMessage, APIMessage, APIRequest, TelegramBot
 
 
 class TestTelegramMessage:
@@ -75,7 +75,7 @@ class TestTelegramBot:
 
     def test_bot_initialization_without_token(self):
         """Test bot initialization fails without token."""
-        with patch("app.telegram.bot.config") as mock_config:
+        with patch("telegram_bot.bot.config") as mock_config:
             mock_config.telegram_bot_token = ""
 
             with pytest.raises(ValueError, match="TELEGRAM_BOT_TOKEN must be set"):
@@ -83,7 +83,7 @@ class TestTelegramBot:
 
     def test_bot_initialization_with_token(self):
         """Test bot initialization with token."""
-        with patch("app.telegram.bot.config") as mock_config:
+        with patch("telegram_bot.bot.config") as mock_config:
             mock_config.telegram_bot_token = "test_token"
             mock_config.app_url = "http://localhost:8000"
             mock_config.x_token = "test_x_token"
@@ -100,7 +100,7 @@ class TestTelegramBot:
     @pytest.mark.asyncio
     async def test_start_command(self):
         """Test /start command handler."""
-        with patch("app.telegram.bot.config") as mock_config:
+        with patch("telegram_bot.bot.config") as mock_config:
             mock_config.telegram_bot_token = "test_token"
             mock_config.app_url = "http://localhost:8000"
             mock_config.x_token = "test_x_token"
@@ -125,7 +125,7 @@ class TestTelegramBot:
     @pytest.mark.asyncio
     async def test_help_command(self):
         """Test /help command handler."""
-        with patch("app.telegram.bot.config") as mock_config:
+        with patch("telegram_bot.bot.config") as mock_config:
             mock_config.telegram_bot_token = "test_token"
             mock_config.app_url = "http://localhost:8000"
             mock_config.x_token = "test_x_token"
@@ -150,7 +150,7 @@ class TestTelegramBot:
     @pytest.mark.asyncio
     async def test_get_ai_response_success(self):
         """Test successful AI response."""
-        with patch("app.telegram.bot.config") as mock_config:
+        with patch("telegram_bot.bot.config") as mock_config:
             mock_config.telegram_bot_token = "test_token"
             mock_config.app_url = "http://localhost:8000"
             mock_config.x_token = "test_x_token"
@@ -177,7 +177,7 @@ class TestTelegramBot:
     @pytest.mark.asyncio
     async def test_get_ai_response_api_error(self):
         """Test API error handling."""
-        with patch("app.telegram.bot.config") as mock_config:
+        with patch("telegram_bot.bot.config") as mock_config:
             mock_config.telegram_bot_token = "test_token"
             mock_config.app_url = "http://localhost:8000"
             mock_config.x_token = "test_x_token"
@@ -203,7 +203,7 @@ class TestTelegramBot:
 
     def test_conversation_history_management(self):
         """Test conversation history management."""
-        with patch("app.telegram.bot.config") as mock_config:
+        with patch("telegram_bot.bot.config") as mock_config:
             mock_config.telegram_bot_token = "test_token"
             mock_config.app_url = "http://localhost:8000"
             mock_config.x_token = "test_x_token"
@@ -243,7 +243,7 @@ class TestTelegramBot:
     @pytest.mark.asyncio
     async def test_clear_command(self):
         """Test /clear command handler."""
-        with patch("app.telegram.bot.config") as mock_config:
+        with patch("telegram_bot.bot.config") as mock_config:
             mock_config.telegram_bot_token = "test_token"
             mock_config.app_url = "http://localhost:8000"
             mock_config.x_token = "test_x_token"
@@ -282,7 +282,7 @@ class TestTelegramBot:
     @pytest.mark.asyncio
     async def test_set_model_command(self):
         """Test /model command shows model selection interface."""
-        with patch("app.telegram.bot.config") as mock_config:
+        with patch("telegram_bot.bot.config") as mock_config:
             mock_config.telegram_bot_token = "test_token"
             mock_config.app_url = "http://localhost:8000"
             mock_config.x_token = "test_x_token"
@@ -326,7 +326,7 @@ class TestTelegramBot:
     @pytest.mark.asyncio
     async def test_set_model_command_with_api_failure(self):
         """Test /model command when API fails to return models."""
-        with patch("app.telegram.bot.config") as mock_config:
+        with patch("telegram_bot.bot.config") as mock_config:
             mock_config.telegram_bot_token = "test_token"
             mock_config.app_url = "http://localhost:8000"
             mock_config.x_token = "test_x_token"
@@ -365,7 +365,7 @@ class TestTelegramBot:
     @pytest.mark.asyncio
     async def test_get_available_models_success(self):
         """Test successful API call to get available models."""
-        with patch("app.telegram.bot.config") as mock_config:
+        with patch("telegram_bot.bot.config") as mock_config:
             mock_config.telegram_bot_token = "test_token"
             mock_config.app_url = "http://localhost:8000"
             mock_config.x_token = "test_x_token"
@@ -393,7 +393,7 @@ class TestTelegramBot:
     @pytest.mark.asyncio
     async def test_get_available_models_failure(self):
         """Test API call failure when getting available models."""
-        with patch("app.telegram.bot.config") as mock_config:
+        with patch("telegram_bot.bot.config") as mock_config:
             mock_config.telegram_bot_token = "test_token"
             mock_config.app_url = "http://localhost:8000"
             mock_config.x_token = "test_x_token"
