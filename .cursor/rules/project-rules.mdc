@@ -120,6 +120,231 @@ test_config = Config.create_test_config(
 - Validate and sanitize configuration values where appropriate
 - Use environment-specific configuration for different deployment environments
 
+# OpenAI API Usage Rules
+
+## Always Use Responses API
+
+When integrating with OpenAI's language models, ALWAYS use the **Responses API**, not the older `chat.completions` API. The Responses API provides better structured outputs and more reliable parsing.
+
+### Always Use Manual Conversation State
+
+ALWAYS use manual conversation state management with `store=False` when using the Responses API. Do not rely on OpenAI's automatic conversation storage.
+
+### Basic Responses API Usage
+
+```python
+from openai import OpenAI
+from app.core.settings import config
+
+client = OpenAI(api_key=config.openai_api_key)
+
+# Basic single request
+response = client.responses.create(
+    model="gpt-4.1",
+    input="Write a one-sentence bedtime story about a unicorn.",
+    store=False
+)
+
+print(response.output_text)
+```
+
+### Manual Conversation State Management
+
+```python
+from openai import OpenAI
+from app.core.settings import config
+
+client = OpenAI(api_key=config.openai_api_key)
+
+# Initialize conversation history
+history = [
+    {"role": "user", "content": "Tell me a joke"}
+]
+
+# First request
+response = client.responses.create(
+    model="gpt-4o-mini",
+    input=history,
+    store=False
+)
+
+print(response.output_text)
+
+# Add the response to conversation history
+history += [{"role": el.role, "content": el.content} for el in response.output]
+
+# Continue the conversation
+history.append({"role": "user", "content": "Tell me another"})
+
+second_response = client.responses.create(
+    model="gpt-4o-mini",
+    input=history,
+    store=False
+)
+
+print(second_response.output_text)
+```
+
+### Using Tools with Responses API
+
+```python
+from openai import OpenAI
+from app.core.settings import config
+
+client = OpenAI(api_key=config.openai_api_key)
+
+response = client.responses.create(
+    model="gpt-4.1",
+    tools=[{"type": "web_search_preview"}],
+    input="What was a positive news story from today?",
+    store=False
+)
+
+print(response.output_text)
+```
+
+### Error Handling with Responses API
+
+```python
+from openai import OpenAI
+from app.core.settings import config
+
+def query_openai(input_content: str, conversation_history: list = None):
+    """Query OpenAI with proper error handling."""
+    client = OpenAI(api_key=config.openai_api_key)
+    
+    # Use conversation history if provided, otherwise single input
+    input_data = conversation_history if conversation_history else input_content
+    
+    try:
+        response = client.responses.create(
+            model="gpt-4o-mini",
+            input=input_data,
+            store=False
+        )
+        
+        if response.output_text:
+            return response.output_text, response.output
+        else:
+            logger.warning("No output text received from OpenAI")
+            return None, None
+            
+    except Exception as e:
+        logger.error(f"OpenAI Responses API error: {e}")
+        raise
+```
+
+### Migration Note
+
+If you encounter legacy code using `client.chat.completions.create()`, update it to use `client.responses.create()` with:
+- `input` parameter instead of `messages`
+- `store=False` for manual conversation state
+- Access response via `response.output_text` or `response.output`
+
+# OpenAI Agents SDK Usage
+
+## Overview
+
+Use the OpenAI Agents SDK to build agentic AI applications capable of taking action on behalf of users. The SDK provides a lightweight, production-ready framework with three core primitives:
+
+- **Agents**: LLMs equipped with instructions and tools
+- **Handoffs**: Allow agents to delegate to other agents for specific tasks  
+- **Guardrails**: Enable input validation and checks
+
+## Basic Agent Creation
+
+Create agents with instructions, names, and optional configuration:
+
+```python
+from agents import Agent
+
+agent = Agent(
+    name="Math Tutor",
+    instructions="You provide help with math problems. Explain your reasoning at each step and include examples",
+    model="gpt-4o-mini"
+)
+```
+
+## Agent Handoffs
+
+Use handoffs to create specialized agents that can delegate tasks to each other:
+
+```python
+from agents import Agent, Runner
+import asyncio
+
+spanish_agent = Agent(
+    name="Spanish agent",
+    instructions="You only speak Spanish.",
+)
+
+english_agent = Agent(
+    name="English agent", 
+    instructions="You only speak English",
+)
+
+triage_agent = Agent(
+    name="Triage agent",
+    instructions="Handoff to the appropriate agent based on the language of the request.",
+    handoffs=[spanish_agent, english_agent],
+)
+```
+
+## Running Agent Workflows
+
+Use the `Runner` to execute agent workflows:
+
+```python
+async def main():
+    result = await Runner.run(triage_agent, input="Hola, ¿cómo estás?")
+    print(result.final_output)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Agent Tools
+
+Convert Python functions into agent tools with automatic schema generation:
+
+```python
+from agents import Agent, function_tool
+
+@function_tool
+def get_weather(city: str) -> str:
+    """Get weather information for a city."""
+    return f"The weather in {city} is sunny"
+
+weather_agent = Agent(
+    name="Weather Assistant",
+    instructions="Help users get weather information",
+    tools=[get_weather],
+)
+```
+
+## Configuration Integration
+
+Integrate agents with your project's configuration system:
+
+```python
+from app.core.settings import config
+from agents import Agent
+
+agent = Agent(
+    name="Assistant",
+    instructions="You are a helpful assistant",
+    model=config.openai_model,  # Configure model via settings
+)
+```
+
+## Best Practices
+
+- Use descriptive agent names and clear instructions
+- Leverage handoffs for complex multi-step workflows
+- Keep agent responsibilities focused and specific
+- Use function tools to extend agent capabilities
+- Test agent workflows with various input scenarios
+
 ## Quality Assurance Requirements
 
 ### Feature Completion Checklist

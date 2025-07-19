@@ -38,3 +38,6 @@ docker-up:
 
 docker-down:
 	docker compose down
+
+logs:
+	docker compose -f docker-compose.yml logs -f
