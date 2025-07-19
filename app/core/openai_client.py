@@ -178,6 +178,34 @@ class OpenAIClient:
                         }
                     )
 
+                    # Auto-inject plant list when plant-related tools fail with "not found" errors
+                    if (
+                        tool_name in ["get_produce_counts", "add_produce"]
+                        and isinstance(tool_result, dict)
+                        and "error" in tool_result
+                        and "not found in the garden" in tool_result["error"]
+                    ):
+                        logger.debug(
+                            f"Plant not found error detected for {tool_name}, automatically calling get_plants"
+                        )
+
+                        try:
+                            # Automatically call get_plants to provide available options
+                            plants_result = await mcp_client.call_tool("get_plants", {})
+                            tool_results.append(
+                                {
+                                    "tool_call_id": f"auto_plants_{tool_call.call_id}",
+                                    "tool_name": "get_plants",
+                                    "tool_result": plants_result,
+                                }
+                            )
+                            logger.debug(
+                                "Successfully added available plants to conversation context"
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to auto-call get_plants: {e}")
+                            # Continue without the plants list - the original error will still be helpful
+
                 # Continue the conversation with tool results using manual conversation history
                 if tool_results:
                     logger.debug(

@@ -13,6 +13,64 @@ from .models import GardenDB
 from app.core.settings import config
 
 
+def normalize_plant_name(plant_name: str, available_plants: List[str]) -> str:
+    """
+    Normalize plant name to match available plants.
+
+    Tries exact match first, then plural/singular variations.
+
+    Args:
+        plant_name: The plant name to normalize
+        available_plants: List of available plant names
+
+    Returns:
+        The normalized plant name that matches an available plant
+
+    Raises:
+        ValueError: If no match is found, with suggestions for available plants
+    """
+    plant_lower = plant_name.lower().strip()
+
+    if not plant_lower:
+        raise ValueError("Plant name cannot be empty")
+
+    # Try exact match first
+    if plant_lower in available_plants:
+        return plant_lower
+
+    # Try plural/singular variations
+    # If input ends with 's', try removing it (peas -> pea)
+    if plant_lower.endswith("s") and len(plant_lower) > 1:
+        singular = plant_lower[:-1]
+        if singular in available_plants:
+            return singular
+
+    # If input doesn't end with 's', try adding it (pea -> peas)
+    else:
+        plural = plant_lower + "s"
+        if plural in available_plants:
+            return plural
+
+    # Try some common plural forms
+    if plant_lower.endswith("y") and len(plant_lower) > 1:
+        # Try y -> ies (berry -> berries)
+        ies_form = plant_lower[:-1] + "ies"
+        if ies_form in available_plants:
+            return ies_form
+
+    if plant_lower.endswith("ies") and len(plant_lower) > 3:
+        # Try ies -> y (berries -> berry)
+        y_form = plant_lower[:-3] + "y"
+        if y_form in available_plants:
+            return y_form
+
+    # No match found - raise error with available plants
+    available_list = ", ".join(sorted(available_plants))
+    raise ValueError(
+        f"Plant '{plant_name}' not found in the garden. Available plants: {available_list}"
+    )
+
+
 # Request/Response models for the tools
 class AddPlantRequest(BaseModel):
     plant_name: str = Field(..., description="Name of the plant to add")
@@ -121,11 +179,11 @@ def register_garden_tools(server: FastMCP):
             ValueError: If the plant is not found.
         """
         try:
-            plant_name = plant_name.strip()
-            if not plant_name:
-                raise ValueError("Plant name cannot be empty")
+            # Normalize plant name to handle plural/singular variations
+            available_plants = garden_db.get_plant_names()
+            normalized_name = normalize_plant_name(plant_name, available_plants)
 
-            plant = garden_db.get_plant(plant_name)
+            plant = garden_db.get_plant(normalized_name)
             if not plant:
                 raise ValueError(f"Plant '{plant_name}' not found in the garden")
 
@@ -157,26 +215,26 @@ def register_garden_tools(server: FastMCP):
             ValueError: If the plant is not found or amount is invalid.
         """
         try:
-            plant_name = plant_name.strip()
-            if not plant_name:
-                raise ValueError("Plant name cannot be empty")
-
             if amount <= 0:
                 raise ValueError("Amount must be positive")
 
+            # Normalize plant name to handle plural/singular variations
+            available_plants = garden_db.get_plant_names()
+            normalized_name = normalize_plant_name(plant_name, available_plants)
+
             # Add the harvest
-            garden_db.add_harvest(plant_name, amount, notes)
+            garden_db.add_harvest(normalized_name, amount, notes)
             save_db()
 
             # Get updated plant info
-            plant = garden_db.get_plant(plant_name)
+            plant = garden_db.get_plant(normalized_name)
             if not plant:
                 raise RuntimeError(
-                    f"Plant '{plant_name}' not found after adding harvest"
+                    f"Plant '{normalized_name}' not found after adding harvest"
                 )
 
             return {
-                "message": f"Added {amount} to {plant_name}. Total yield is now {plant.total_yield}"
+                "message": f"Added {amount} to {plant.name}. Total yield is now {plant.total_yield}"
             }
         except ValueError as e:
             raise ValueError(str(e))
