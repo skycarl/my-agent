@@ -5,7 +5,7 @@ from app.core.logger import init_logging
 
 root_router = APIRouter()
 
-app = FastAPI(title="FastAPI Boiler Plate")
+app = FastAPI(title="My agent backend")
 
 app.include_router(main_router)
 app.include_router(root_router)

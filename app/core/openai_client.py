@@ -3,10 +3,12 @@ OpenAI client helper module.
 
 This module provides a simple interface for working with OpenAI API
 using the API key from application settings.
+
+Implements manual conversation state management using the Responses API.
 """
 
 import json
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any, List
 from openai import OpenAI
 from loguru import logger
 from app.core.settings import config
@@ -60,20 +62,16 @@ class OpenAIClient:
         """Test the OpenAI API key by making a simple request."""
         try:
             logger.debug("Testing OpenAI API key validity...")
-
-            # Create a temporary client for testing
             test_client = OpenAI(api_key=config.openai_api_key)
-
-            # Make a simple request to test the API key
-            response = test_client.chat.completions.create(
+            response = test_client.responses.create(
                 model="gpt-4o-mini",
-                messages=[{"role": "user", "content": "Hello"}],
-                max_tokens=5,
+                input="This is a healthcheck. Please respond with 'OK'.",
+                max_output_tokens=16,
             )
-
             logger.info("OpenAI API key validation successful")
-            logger.debug(f"Test response ID: {response.id}")
-
+            logger.debug(
+                f"Test response ID: {response.id}, response: {response.output_text}"
+            )
         except Exception as e:
             logger.error(f"OpenAI API key validation failed: {str(e)}")
             raise ValueError(
@@ -82,142 +80,208 @@ class OpenAIClient:
             )
 
     async def create_response(
-        self, messages: List[Dict[str, Any]], model: str = "gpt-4o"
+        self,
+        user_input: Any,
+        model: str = "gpt-4o",
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
+        max_output_tokens: Optional[int] = None,
+        instructions: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Create a response using the OpenAI Responses API with MCP tools integration.
+        Create a response using the OpenAI Responses API with manual conversation state.
 
         Args:
-            messages: List of message dictionaries with 'role' and 'content' keys
+            user_input: The conversation history as a list of messages
+            model: The model to use for the response
+            tools: List of tool definitions (optional)
+            tool_choice: Tool choice mode (optional)
+            max_output_tokens: Max output tokens (optional)
+            instructions: System instructions (optional)
 
         Returns:
-            Dict containing the response data
+            Dict containing the response data with updated conversation history
         """
         try:
-            logger.debug(f"Calling OpenAI API with model: {model}")
-            logger.debug(f"Request messages: {messages}")
+            logger.debug(f"Calling OpenAI Responses API with model: {model}")
+            logger.debug(f"User input: {user_input}")
 
-            # Get available MCP tools
-            tools = await mcp_client.get_available_tools()
-            logger.debug(f"Available MCP tools: {len(tools)}")
+            # Get available MCP tools if enabled and no tools provided
+            if tools is None and config.enable_mcp_tools:
+                try:
+                    tools = await mcp_client.get_available_tools()
+                    if tools:
+                        logger.debug(
+                            f"Retrieved {len(tools)} MCP tools for this request"
+                        )
+                    else:
+                        logger.debug("No MCP tools available")
+                except Exception as e:
+                    logger.warning(f"Failed to get MCP tools: {str(e)}")
+                    tools = None
 
-            # Create initial request parameters
-            request_params = {
+            # Build the argument list for responses.create
+            create_args = {
                 "model": model,
-                "messages": messages,  # type: ignore
+                "input": user_input,
+                "store": False,  # Don't store conversations on OpenAI side
             }
+            if max_output_tokens is not None:
+                create_args["max_output_tokens"] = max_output_tokens
+            if instructions is not None:
+                create_args["instructions"] = instructions
+            if tools is not None:
+                create_args["tools"] = tools
+                logger.debug(f"Added {len(tools)} tools to OpenAI request")
+            if tool_choice is not None:
+                create_args["tool_choice"] = tool_choice
 
-            # Add tools if available
-            if tools:
-                request_params["tools"] = tools
-                request_params["tool_choice"] = "auto"
-                logger.debug("Added MCP tools to OpenAI request")
-
-            # Make the initial request
-            response = self.client.chat.completions.create(**request_params)
+            response = self.client.responses.create(**create_args)
 
             logger.debug(
-                f"OpenAI API response received - ID: {response.id}, Model: {response.model}"
+                f"OpenAI Responses API response received - ID: {response.id}, Model: {response.model}"
             )
 
-            # Check if the response contains tool calls
-            if response.choices[0].message.tool_calls:
-                logger.debug("Response contains tool calls, processing...")
+            # Handle tool calls if present in response.output
+            tool_calls = [
+                item
+                for item in response.output
+                if getattr(item, "type", None) == "function_call"
+            ]
+            tool_results = []
 
-                # Add the assistant's message with tool calls to the conversation
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": response.choices[0].message.content,
-                        "tool_calls": [
-                            {
-                                "id": tool_call.id,
-                                "type": "function",
-                                "function": {
-                                    "name": tool_call.function.name,
-                                    "arguments": tool_call.function.arguments,
-                                },
-                            }
-                            for tool_call in response.choices[0].message.tool_calls
-                        ],
-                    }
+            if tool_calls:
+                logger.debug(
+                    f"Response contains {len(tool_calls)} tool calls, processing..."
                 )
 
                 # Process each tool call
-                for tool_call in response.choices[0].message.tool_calls:
-                    tool_name = tool_call.function.name
+                for tool_call in tool_calls:
+                    tool_name = tool_call.name
                     try:
-                        tool_args = json.loads(tool_call.function.arguments)
+                        tool_args = (
+                            json.loads(tool_call.arguments)
+                            if tool_call.arguments
+                            else {}
+                        )
                     except json.JSONDecodeError:
                         tool_args = {}
-
                     logger.debug(
                         f"Processing tool call: {tool_name} with args: {tool_args}"
                     )
-
-                    # Call the MCP tool
                     tool_result = await mcp_client.call_tool(tool_name, tool_args)
-
-                    # Add the tool result to the conversation
-                    messages.append(
+                    tool_results.append(
                         {
-                            "role": "tool",
-                            "content": json.dumps(tool_result),
-                            "tool_call_id": tool_call.id,
+                            "tool_call_id": tool_call.call_id,
+                            "tool_name": tool_name,
+                            "tool_result": tool_result,
                         }
                     )
 
-                # Make a second request to get the final response
-                logger.debug("Making second request to OpenAI with tool results")
+                # Continue the conversation with tool results using manual conversation history
+                if tool_results:
+                    logger.debug(
+                        "Continuing conversation with tool results using manual history"
+                    )
 
-                final_response = self.client.chat.completions.create(
-                    model=model,
-                    messages=messages,  # type: ignore
-                )
+                    conversation_history = []
 
-                response = final_response
-                logger.debug("Received final response from OpenAI")
+                    if isinstance(user_input, list):
+                        conversation_history.extend(user_input)
+                    else:
+                        conversation_history.append(
+                            {"role": "user", "content": str(user_input)}
+                        )
 
-            # Log token usage for monitoring
-            if response.usage:
-                logger.debug(
-                    f"Token usage - Prompt: {response.usage.prompt_tokens}, "
-                    f"Completion: {response.usage.completion_tokens}, "
-                    f"Total: {response.usage.total_tokens}"
-                )
+                    # Extract text content for the assistant message
+                    assistant_text_content = ""
+                    message_items = [
+                        item
+                        for item in response.output
+                        if getattr(item, "type", None) == "message"
+                    ]
+                    if message_items:
+                        for message_item in message_items:
+                            if hasattr(message_item, "content"):
+                                for content_item in message_item.content:
+                                    if hasattr(content_item, "text"):
+                                        assistant_text_content += content_item.text
+
+                    if assistant_text_content:
+                        conversation_history.append(
+                            {"role": "assistant", "content": assistant_text_content}
+                        )
+
+                    # Add a user message with tool results to continue the conversation
+                    tool_results_summary = "Tool results:\n"
+                    for tool_result in tool_results:
+                        tool_name = tool_result["tool_name"]
+                        result_content = tool_result["tool_result"]
+                        tool_results_summary += (
+                            f"- {tool_name}: {json.dumps(result_content)}\n"
+                        )
+
+                    conversation_history.append(
+                        {
+                            "role": "user",
+                            "content": f"{tool_results_summary}\nPlease provide a final response based on these tool results.",
+                        }
+                    )
+
+                    # Make continuation request with full conversation history
+                    continuation_args = {
+                        "model": model,
+                        "input": conversation_history,
+                        "store": False,  # Don't store conversations on OpenAI side
+                    }
+                    if max_output_tokens is not None:
+                        continuation_args["max_output_tokens"] = max_output_tokens
+                    if instructions is not None:
+                        continuation_args["instructions"] = instructions
+                    if tools is not None:
+                        continuation_args["tools"] = tools
+
+                    logger.debug(
+                        "Making continuation request with manual conversation history"
+                    )
+                    final_response = self.client.responses.create(**continuation_args)
+
+                    # Use the final response for the result
+                    response = final_response
+                    logger.debug(
+                        f"Continuation response received - ID: {final_response.id}"
+                    )
+
+            # Extract output_text from response.output
+            output_text = ""
+            message_items = [
+                item
+                for item in response.output
+                if getattr(item, "type", None) == "message"
+            ]
+            if message_items:
+                for message_item in message_items:
+                    if hasattr(message_item, "content"):
+                        for content_item in message_item.content:
+                            if hasattr(content_item, "text"):
+                                output_text += content_item.text
 
             result = {
                 "id": response.id,
-                "object": response.object,
-                "created": response.created,
+                "object": "response",
+                "created": getattr(response, "created_at", None),
                 "model": response.model,
-                "choices": [
-                    {
-                        "index": choice.index,
-                        "message": {
-                            "role": choice.message.role,
-                            "content": choice.message.content,
-                        },
-                        "finish_reason": choice.finish_reason,
-                    }
-                    for choice in response.choices
-                ],
-                "usage": {
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens,
-                }
-                if response.usage
-                else None,
+                "output_text": output_text,
+                "tool_calls": tool_calls if tool_calls else None,
+                "tool_results": tool_results,
+                "usage": getattr(response, "usage", None),
             }
-
-            logger.debug("Successfully processed OpenAI response")
+            logger.debug("Successfully processed OpenAI Responses API response")
             return result
-
         except Exception as e:
-            logger.info(f"OpenAI API error: {str(e)}")
-            logger.debug(f"Full OpenAI API error details: {e}", exc_info=True)
-            raise Exception(f"OpenAI API error: {str(e)}")
+            logger.info(f"OpenAI Responses API error: {str(e)}")
+            logger.debug(f"Full OpenAI Responses API error details: {e}", exc_info=True)
+            raise Exception(f"OpenAI Responses API error: {str(e)}")
 
 
 # Create a global OpenAI client instance

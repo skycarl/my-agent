@@ -89,33 +89,28 @@ async def test_openai_client_with_mcp_tools():
     ]
 
     # Mock OpenAI response without tool calls
+    mock_message_item = type(
+        "MockMessageItem",
+        (),
+        {
+            "type": "message",
+            "content": [
+                type(
+                    "MockContent", (), {"text": "Test response", "type": "output_text"}
+                )()
+            ],
+        },
+    )()
+
     mock_response = type(
         "MockResponse",
         (),
         {
             "id": "test-id",
-            "object": "chat.completion",
-            "created": 1234567890,
+            "object": "response",
+            "created_at": 1234567890,
             "model": "gpt-4o-mini",
-            "choices": [
-                type(
-                    "MockChoice",
-                    (),
-                    {
-                        "index": 0,
-                        "message": type(
-                            "MockMessage",
-                            (),
-                            {
-                                "role": "assistant",
-                                "content": "Test response",
-                                "tool_calls": None,
-                            },
-                        )(),
-                        "finish_reason": "stop",
-                    },
-                )()
-            ],
+            "output": [mock_message_item],
             "usage": type(
                 "MockUsage",
                 (),
@@ -126,18 +121,16 @@ async def test_openai_client_with_mcp_tools():
 
     with patch.object(mcp_client, "get_available_tools", return_value=mock_tools):
         with patch.object(openai_client, "_client") as mock_client:
-            mock_client.chat.completions.create.return_value = mock_response
+            mock_client.responses.create.return_value = mock_response
 
-            messages = [{"role": "user", "content": "Hello"}]
-            result = await openai_client.create_response(messages)
+            result = await openai_client.create_response("Hello", tools=mock_tools)
 
-            assert result["choices"][0]["message"]["content"] == "Test response"
+            assert result["output_text"] == "Test response"
 
             # Verify tools were passed to OpenAI
-            call_args = mock_client.chat.completions.create.call_args
+            call_args = mock_client.responses.create.call_args
             assert "tools" in call_args.kwargs
             assert call_args.kwargs["tools"] == mock_tools
-            assert call_args.kwargs["tool_choice"] == "auto"
 
 
 def test_responses_endpoint_accepts_mcp_tools(client):

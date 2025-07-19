@@ -50,16 +50,14 @@ class MCPClient:
                 tools = await client.list_tools()
                 logger.debug(f"Retrieved {len(tools)} tools from MCP server")
 
-                # Convert MCP tools to OpenAI function calling format
+                # Convert MCP tools to OpenAI Responses API format
                 openai_tools = []
                 for tool in tools:
                     openai_tool = {
                         "type": "function",
-                        "function": {
-                            "name": tool.name,
-                            "description": tool.description,
-                            "parameters": tool.inputSchema,
-                        },
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.inputSchema,
                     }
                     openai_tools.append(openai_tool)
 

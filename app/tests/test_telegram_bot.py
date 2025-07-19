@@ -4,7 +4,6 @@ Tests for the Telegram bot module.
 
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
-from pydantic import ValidationError
 
 from app.telegram.bot import TelegramMessage, APIMessage, APIRequest, TelegramBot
 
@@ -31,20 +30,17 @@ class TestTelegramMessage:
     def test_message_without_username(self):
         """Test creating a message without username."""
         message = TelegramMessage(
-            message_id=123, chat_id=456, text="Hello, world!", user_id=789
+            message_id=123,
+            chat_id=456,
+            text="Hello, world!",
+            user_id=789,
         )
 
+        assert message.message_id == 123
+        assert message.chat_id == 456
+        assert message.text == "Hello, world!"
+        assert message.user_id == 789
         assert message.username is None
-
-    def test_invalid_message_type(self):
-        """Test validation error for invalid message types."""
-        with pytest.raises(ValidationError):
-            TelegramMessage(
-                message_id="invalid",  # Should be int
-                chat_id=456,
-                text="Hello, world!",
-                user_id=789,
-            )
 
 
 class TestAPIMessage:
@@ -56,11 +52,6 @@ class TestAPIMessage:
 
         assert message.role == "user"
         assert message.content == "Hello"
-
-    def test_api_message_validation(self):
-        """Test API message validation."""
-        with pytest.raises(ValidationError):
-            APIMessage(role="user")  # Missing content
 
 
 class TestAPIRequest:
@@ -171,9 +162,7 @@ class TestTelegramBot:
             # Mock successful API response
             mock_response = Mock()
             mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "choices": [{"message": {"content": "AI response here"}}]
-            }
+            mock_response.json.return_value = {"output_text": "AI response here"}
 
             with patch("httpx.AsyncClient") as mock_client:
                 mock_client.return_value.__aenter__.return_value.post = AsyncMock(

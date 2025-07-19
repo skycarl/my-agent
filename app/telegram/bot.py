@@ -296,9 +296,6 @@ Just send me any message and I'll respond using AI!
             logger.debug(
                 f"Making API call to {self.app_url}/responses with {len(conversation_history)} messages"
             )
-            logger.debug(
-                f"Using X-Token: '{self.x_token}' (length: {len(self.x_token)})"
-            )
 
             # Make the API call
             async with httpx.AsyncClient() as client:
@@ -314,12 +311,22 @@ Just send me any message and I'll respond using AI!
                     logger.debug(f"API response received: {response_data}")
 
                     # Extract the content from OpenAI response
-                    if "choices" in response_data and len(response_data["choices"]) > 0:
-                        ai_response = response_data["choices"][0]["message"]["content"]
-                        logger.debug(f"AI response extracted: {ai_response}")
-                        return ai_response
+                    if "output_text" in response_data:
+                        output_text = response_data["output_text"]
+                        if output_text:
+                            ai_response = output_text
+                            logger.debug(f"AI response extracted: {ai_response}")
+                            return ai_response
+                        else:
+                            # Check if we have tool results that might explain empty output
+                            tool_results = response_data.get("tool_results", [])
+                            tool_calls = response_data.get("tool_calls")
+                            logger.warning(
+                                f"Empty output_text received. Tool calls: {tool_calls}, Tool results: {len(tool_results)}"
+                            )
+                            return "I processed your request but didn't generate a text response. Please try rephrasing your question."
                     else:
-                        logger.info("API response missing expected 'choices' structure")
+                        logger.info("API response missing expected 'output_text' field")
                         return "I couldn't generate a response. Please try again."
                 else:
                     logger.info(

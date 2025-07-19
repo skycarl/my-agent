@@ -74,11 +74,6 @@ async def create_response(request: ResponsesRequest):
                 f"Message {i + 1}: role={message.role}, content={message.content}"
             )
 
-        # Convert Pydantic models to dict format expected by OpenAI
-        messages = [
-            {"role": msg.role, "content": msg.content} for msg in request.messages
-        ]
-
         # Determine which model to use (default to gpt-4o)
         model = request.model or "gpt-4o"
         logger.debug(f"Using model '{model}' for this request")
@@ -91,20 +86,27 @@ async def create_response(request: ResponsesRequest):
                 detail=f"Invalid model '{model}'. Available models: {', '.join(config.valid_openai_models)}",
             )
 
-        logger.debug(f"Calling OpenAI API with messages: {messages}")
+        # Convert messages to the format expected by OpenAI Responses API
+        # The API expects input as a list of message objects for conversation history
+        conversation_input = [
+            {"role": msg.role, "content": msg.content} for msg in request.messages
+        ]
 
-        # Call OpenAI API
-        response = await openai_client.create_response(messages, model=model)
+        logger.debug(
+            f"Calling OpenAI Responses API with conversation: {conversation_input}"
+        )
+
+        # Call OpenAI Responses API with full conversation history
+        response = await openai_client.create_response(
+            user_input=conversation_input, model=model
+        )
 
         logger.debug(f"OpenAI API response received: {response}")
 
         # Log the response content for debugging
-        if isinstance(response, dict) and "choices" in response:
-            if len(response["choices"]) > 0:
-                response_content = (
-                    response["choices"][0].get("message", {}).get("content", "")
-                )
-                logger.debug(f"AI response content: {response_content}")
+        if isinstance(response, dict) and "output_text" in response:
+            response_content = response["output_text"]
+            logger.debug(f"AI response content: {response_content}")
 
         logger.debug("Successfully returning response from /responses endpoint")
         return JSONResponse(content=jsonable_encoder(response))
