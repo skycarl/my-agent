@@ -1,15 +1,16 @@
 [project]
 name = "my-agent"
-version = "0.3.0"
+version = "0.3.1"
 description = "My agent"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "beautifulsoup4>=4.13.4",
     "fastapi>=0.115.13",
     "fastmcp>=2.10.0",
     "httpx>=0.28.0",
     "loguru>=0.7.3",
-    "openai>=1.93",
+    "openai>=1.95",
     "pre-commit>=4.2.0",
     "pydantic>=2.11.7",
     "pydantic-settings>=2.6.1",

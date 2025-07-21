@@ -79,8 +79,61 @@ class TelegramBot:
         """Check if the user is authorized to use the bot."""
         return user_id == self.authorized_user_id
 
-    def _log_unauthorized_access(self, update: Update, action: str = "message") -> None:
-        """Log detailed information about unauthorized access attempts."""
+    async def _notify_admin_unauthorized_access(
+        self, update: Update, action: str = "message"
+    ) -> None:
+        """Send notification to admin about unauthorized access attempt."""
+        if not self.application or not self.application.bot:
+            logger.warning(
+                "Cannot send admin notification: bot application not available"
+            )
+            return
+
+        if not update.message or not update.message.from_user:
+            logger.warning(
+                "Cannot send admin notification: incomplete user information"
+            )
+            return
+
+        try:
+            user = update.message.from_user
+            chat = update.message.chat
+
+            # Format the notification message
+            notification_text = (
+                f"🚨 **UNAUTHORIZED ACCESS ATTEMPT** 🚨\n\n"
+                f"**Action:** {action.upper()}\n"
+                f"**User ID:** `{user.id}`\n"
+                f"**Username:** @{user.username or 'N/A'}\n"
+                f"**Name:** {user.first_name or ''} {user.last_name or ''}".strip()
+                + "\n"
+                f"**Chat ID:** `{chat.id}`\n"
+                f"**Chat Type:** {chat.type}\n"
+                f"**Message:** `{update.message.text or 'N/A'}`\n"
+                f"**Date:** {update.message.date}\n"
+                f"**Message ID:** `{update.message.message_id}`"
+            )
+
+            # Send notification to admin
+            await self.application.bot.send_message(
+                chat_id=self.authorized_user_id,
+                text=notification_text,
+                parse_mode="Markdown",
+            )
+
+            logger.info(
+                f"Admin notification sent for unauthorized access by user {user.id}"
+            )
+
+        except Exception as e:
+            logger.error(
+                f"Failed to send admin notification for unauthorized access: {e}"
+            )
+
+    async def _log_unauthorized_access(
+        self, update: Update, action: str = "message"
+    ) -> None:
+        """Log detailed information about unauthorized access attempts and notify admin."""
         if not update.message or not update.message.from_user:
             logger.warning(
                 f"Unauthorized {action} attempt with incomplete user information"
@@ -102,6 +155,9 @@ class TelegramBot:
             f"Message ID: {update.message.message_id}, "
             f"Date: {update.message.date}"
         )
+
+        # Send notification to admin
+        await self._notify_admin_unauthorized_access(update, action)
 
     def _add_message_to_history(self, user_id: int, role: str, content: str) -> None:
         """Add a message to the conversation history for a user."""
@@ -149,7 +205,7 @@ class TelegramBot:
 
         # Check authorization
         if not self._is_authorized_user(user_id):
-            self._log_unauthorized_access(update, "start command")
+            await self._log_unauthorized_access(update, "start command")
             return  # Silently ignore unauthorized users
 
         username = update.message.from_user.username
@@ -171,7 +227,7 @@ class TelegramBot:
 
         # Check authorization
         if not self._is_authorized_user(user_id):
-            self._log_unauthorized_access(update, "help command")
+            await self._log_unauthorized_access(update, "help command")
             return  # Silently ignore unauthorized users
 
         username = update.message.from_user.username
@@ -200,7 +256,7 @@ Just send me any message and I'll respond using AI!
 
         # Check authorization
         if not self._is_authorized_user(user_id):
-            self._log_unauthorized_access(update, "clear command")
+            await self._log_unauthorized_access(update, "clear command")
             return  # Silently ignore unauthorized users
 
         username = update.message.from_user.username
@@ -227,7 +283,7 @@ Just send me any message and I'll respond using AI!
 
         # Check authorization first
         if not self._is_authorized_user(user_id):
-            self._log_unauthorized_access(update, "message")
+            await self._log_unauthorized_access(update, "message")
             return  # Silently ignore unauthorized users
 
         try:
@@ -353,7 +409,7 @@ Just send me any message and I'll respond using AI!
 
         # Authorization check
         if not self._is_authorized_user(user_id):
-            self._log_unauthorized_access(update, "model command")
+            await self._log_unauthorized_access(update, "model command")
             return  # Silently ignore unauthorized users
 
         try:
@@ -439,7 +495,7 @@ Just send me any message and I'll respond using AI!
 
         # Authorization check
         if not self._is_authorized_user(user_id):
-            self._log_unauthorized_access(update, "model callback")
+            await self._log_unauthorized_access(update, "model callback")
             return  # Silently ignore unauthorized users
 
         try:
