@@ -5,6 +5,8 @@ Main entry point for the MCP server.
 from urllib.parse import urlparse
 from fastmcp import FastMCP
 from .garden.tools import register_garden_tools
+from .commute.tools import register_commute_tools
+from .utils.tools import register_utils_tools
 
 # Import the config from the main app
 try:
@@ -19,6 +21,12 @@ server = FastMCP(name="my-mcp-server")
 
 # Register garden tools
 register_garden_tools(server)
+
+# Register commute tools
+register_commute_tools(server)
+
+# Register utils tools
+register_utils_tools(server)
 
 
 def create_app():

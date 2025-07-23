@@ -81,6 +81,16 @@ async def test_garden_server():
             except Exception as e:
                 print(f"Expected error for nonexistent plant: {e}")
 
+            # Test 9: Get current date
+            print("\n=== Test 9: Get Current Date ===")
+            date_info = await client.call_tool("get_current_date")
+            print(f"Current date info: {date_info}")
+
+            # Test 10: Get monorail hours
+            print("\n=== Test 10: Get Monorail Hours ===")
+            hours = await client.call_tool("get_monorail_hours")
+            print(f"Monorail hours: {hours}")
+
     except Exception as e:
         print(f"Error connecting to server: {e}")
         print("Make sure the MCP server is running on port 8001")
