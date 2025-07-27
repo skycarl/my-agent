@@ -52,7 +52,7 @@ orchestrator_agent = Agent(
     If you're unsure whether something is garden-related, lean towards using the Gardener agent.
     If you're unsure whether something is commute-related, lean towards using the Commute Assistant.
     
-    Be friendly and explain which agent you're connecting them to and why.
+    Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
     """,
     handoffs=[gardener_agent, commute_agent],
     model=config.valid_openai_models[0]

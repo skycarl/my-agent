@@ -120,8 +120,8 @@ gardener_agent = Agent(
     - add_produce: Record a new harvest
     
     When users ask about plants that don't exist, always suggest they check what plants are available first.
-    Be helpful and encouraging about their gardening activities.
     Provide clear, actionable responses about their garden management tasks.
+    Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
     """,
     tools=[get_plants, add_plant, get_produce_counts, add_produce],
     model=config.valid_openai_models[0]

@@ -65,6 +65,7 @@ commute_agent = Agent(
     Be helpful and provide clear, actionable transportation information.
     If users ask about transportation options not covered by your tools, provide general guidance
     and suggest they check official transportation websites for the most current information.
+    Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
     """,
     tools=[get_monorail_hours, get_current_date],
     model=config.valid_openai_models[0]
