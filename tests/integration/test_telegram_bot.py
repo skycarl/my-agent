@@ -162,7 +162,7 @@ class TestTelegramBot:
             # Mock successful API response
             mock_response = Mock()
             mock_response.status_code = 200
-            mock_response.json.return_value = {"output_text": "AI response here"}
+            mock_response.json.return_value = {"response": "AI response here"}
 
             with patch("httpx.AsyncClient") as mock_client:
                 mock_client.return_value.__aenter__.return_value.post = AsyncMock(

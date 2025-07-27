@@ -134,3 +134,6 @@ dmypy.json
 poetry.lock
 
 .DS_Store
+
+# project specific
+garden_db.json

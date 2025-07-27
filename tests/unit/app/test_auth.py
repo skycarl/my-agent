@@ -43,31 +43,6 @@ def test_healthcheck_endpoint():
     assert response.json() == {"status": "healthy"}
 
 
-def test_responses_endpoint_without_token():
-    """Test responses endpoint without proper token."""
-    response = client.post(
-        "/responses", json={"messages": [{"role": "user", "content": "Hello"}]}
-    )
-    # Should fail due to missing or invalid token
-    assert response.status_code in [422, 400]  # Depending on FastAPI validation
-
-
-def test_responses_endpoint_with_valid_token():
-    """Test responses endpoint with valid token."""
-    headers = {"X-Token": config.x_token}
-    response = client.post(
-        "/responses",
-        json={"messages": [{"role": "user", "content": "Hello"}]},
-        headers=headers,
-    )
-    # Should succeed with proper OpenAI key or fail without it
-    assert response.status_code in [
-        200,
-        500,
-        422,
-    ]  # 200 if OpenAI key configured, 500/422 if not
-
-
 def test_models_endpoint():
     """Test the models endpoint."""
     response = client.get("/models")
@@ -78,19 +53,3 @@ def test_models_endpoint():
     assert data["default_model"] == "gpt-4o"
     assert isinstance(data["models"], list)
     assert len(data["models"]) > 0
-
-
-def test_responses_endpoint_with_invalid_model():
-    """Test responses endpoint with invalid model."""
-    headers = {"X-Token": config.x_token}
-    response = client.post(
-        "/responses",
-        json={
-            "messages": [{"role": "user", "content": "Hello"}],
-            "model": "invalid-model",
-        },
-        headers=headers,
-    )
-    assert response.status_code == 400
-    data = response.json()
-    assert "Invalid model" in data["detail"]

@@ -131,23 +131,3 @@ async def test_openai_client_with_mcp_tools():
             call_args = mock_client.responses.create.call_args
             assert "tools" in call_args.kwargs
             assert call_args.kwargs["tools"] == mock_tools
-
-
-def test_responses_endpoint_accepts_mcp_tools(client):
-    """Test that responses endpoint works with MCP integration."""
-    from app.core.mcp_client import mcp_client
-
-    # Mock MCP tools to return empty list (no tools available)
-    with patch.object(mcp_client, "get_available_tools", return_value=[]):
-        headers = {"X-Token": config.x_token}
-        response = client.post(
-            "/responses",
-            json={"messages": [{"role": "user", "content": "Hello"}]},
-            headers=headers,
-        )
-
-        # Should not fail even if MCP tools are not available
-        assert response.status_code in [
-            200,
-            500,
-        ]  # 200 if OpenAI key configured, 500 if not
