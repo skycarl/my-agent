@@ -59,6 +59,30 @@ class Config(BaseSettings):
         description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
 
+    # Email Sink Configuration
+    email_sink_enabled: bool = Field(
+        default=False, description="Enable email sink monitoring service"
+    )
+    email_address: str = Field(
+        default="", description="Gmail address for email monitoring"
+    )
+    email_password: str = Field(
+        default="", description="Gmail app password for email monitoring"
+    )
+    email_imap_server: str = Field(
+        default="imap.gmail.com", description="IMAP server for email monitoring"
+    )
+    email_poll_interval: int = Field(
+        default=60, description="Email polling interval in seconds"
+    )
+    email_sender_patterns: str = Field(
+        default="alerts@",
+        description="Comma-separated list of sender patterns to monitor (supports substrings like 'alerts@' or '@alertdomain.com')",
+    )
+    storage_path: str = Field(
+        default="storage", description="Path to storage directory for persistent data"
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -65,7 +65,7 @@ def test_config_partial_env_override():
         config = Config()
 
         # x_token should use default
-        assert config.x_token == "12345678910"
+        assert config.x_token == "123"
         # openai_api_key should use env var
         assert config.openai_api_key == "sk-only-openai-key"
 

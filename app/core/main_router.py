@@ -1,3 +1,6 @@
+import json
+from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.encoders import jsonable_encoder
@@ -62,6 +65,25 @@ class ModelsResponse(BaseModel):
 
     models: list[str]
     default_model: str = "gpt-4o"
+
+
+class CommuteAlertRequest(BaseModel):
+    """Request model for commute alert data."""
+
+    uid: str
+    subject: str
+    body: str
+    sender: str
+    date: datetime
+    alert_type: str = "email"
+
+
+class CommuteAlertResponse(BaseModel):
+    """Response model for commute alert storage."""
+
+    success: bool
+    message: str
+    alert_id: str
 
 
 @router.get("/healthcheck", status_code=200, response_model=HealthResponse)
@@ -168,5 +190,89 @@ async def create_agent_response(request: AgentRequest):
             response=f"Sorry, I encountered an error processing your request: {str(e)}",
             agent_name="Error",
             success=False,
+        )
+        return JSONResponse(status_code=500, content=jsonable_encoder(error_response))
+
+
+@router.post("/commute_alert", status_code=201, dependencies=[Depends(verify_token)])
+async def store_commute_alert(request: CommuteAlertRequest):
+    """
+    Store a commute alert to persistent JSON storage.
+
+    This endpoint receives commute alerts from the email sink service
+    and stores them in a JSON file for later retrieval.
+
+    Args:
+        request: The commute alert data
+
+    Returns:
+        Success confirmation with alert ID
+    """
+    try:
+        # Ensure storage directory exists
+        storage_dir = Path(config.storage_path)
+        storage_dir.mkdir(exist_ok=True)
+
+        # Define the alerts file path
+        alerts_file = storage_dir / "commute_alerts.json"
+
+        # Load existing alerts or create empty list
+        alerts = []
+        if alerts_file.exists():
+            try:
+                with open(alerts_file, "r", encoding="utf-8") as f:
+                    alerts = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError) as e:
+                logger.warning(f"Error reading existing alerts file: {e}")
+                alerts = []
+
+        # Create the alert record
+        alert_record = {
+            "id": f"alert_{len(alerts) + 1}_{request.uid}",
+            "uid": request.uid,
+            "subject": request.subject,
+            "body": request.body,
+            "sender": request.sender,
+            "received_date": request.date.isoformat(),
+            "stored_date": datetime.now().isoformat(),
+            "alert_type": request.alert_type,
+        }
+
+        # Add to alerts list
+        alerts.append(alert_record)
+
+        # Write back to file with proper error handling
+        try:
+            with open(alerts_file, "w", encoding="utf-8") as f:
+                json.dump(alerts, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Failed to write alerts to file: {e}")
+            raise HTTPException(
+                status_code=500, detail="Failed to store alert to persistent storage"
+            )
+
+        logger.info(
+            f"Successfully stored commute alert {alert_record['id']} from {request.sender}"
+        )
+
+        # Return success response
+        response = CommuteAlertResponse(
+            success=True,
+            message="Alert stored successfully",
+            alert_id=alert_record["id"],
+        )
+
+        return JSONResponse(content=jsonable_encoder(response))
+
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        logger.error(f"Error in /commute_alert endpoint: {str(e)}")
+        logger.debug(f"Full error details: {e}", exc_info=True)
+
+        # Return error response
+        error_response = CommuteAlertResponse(
+            success=False, message=f"Failed to store alert: {str(e)}", alert_id=""
         )
         return JSONResponse(status_code=500, content=jsonable_encoder(error_response))

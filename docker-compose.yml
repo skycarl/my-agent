@@ -11,6 +11,10 @@ services:
     restart: always
     networks:
       - app-network
+    volumes:
+      - .:/app/workspace
+    environment:
+      - STORAGE_PATH=/app/workspace/storage
 
   telegram-bot:
     container_name: telegram_bot
@@ -39,6 +43,18 @@ services:
       - .:/app/workspace
     environment:
       - GARDEN_DB_PATH=/app/workspace/garden_db.json
+
+  email-sink:
+    container_name: email_sink
+    build: 
+      context: .
+      dockerfile: .docker/Dockerfile
+    command: bash -c "uv run python -m email_sink.main"
+    depends_on:
+      - app
+    restart: always
+    networks:
+      - app-network
 
 networks:
   app-network:
