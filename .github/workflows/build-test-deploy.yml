@@ -56,14 +56,14 @@ jobs:
         # Check if any tags exist
         if git describe --tags --abbrev=0 2>/dev/null; then
           PREVIOUS_VERSION=$(git describe --tags --abbrev=0)
-          CURRENT_VERSION=$(grep -Po '(?<=version = ")[^"]*' pyproject.toml)
+          CURRENT_VERSION=$(grep -A0 '^\[project\]' -A1 pyproject.toml | grep 'version = ' | sed 's/version = "\([^"]*\)"/\1/')
           if [ "$CURRENT_VERSION" == "$PREVIOUS_VERSION" ]; then
             echo "Version has not been bumped. Please update the version in pyproject.toml."
             exit 1
           fi
         else
           echo "No previous tags found. This appears to be the first release."
-          CURRENT_VERSION=$(grep -Po '(?<=version = ")[^"]*' pyproject.toml)
+          CURRENT_VERSION=$(grep -A0 '^\[project\]' -A1 pyproject.toml | grep 'version = ' | sed 's/version = "\([^"]*\)"/\1/')
           echo "Current version: $CURRENT_VERSION"
         fi
 
@@ -72,7 +72,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        CURRENT_VERSION=$(grep -Po '(?<=version = ")[^"]*' pyproject.toml)
+        CURRENT_VERSION=$(grep -A0 '^\[project\]' -A1 pyproject.toml | grep 'version = ' | sed 's/version = "\([^"]*\)"/\1/')
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
         git tag v$CURRENT_VERSION
