@@ -176,3 +176,11 @@ To manually run pre-commit hooks:
    ```
 
 You can also run specific hooks or run them only on staged files. See the [pre-commit documentation](https://pre-commit.com/) for more options.
+
+# Ideas
+
+- [x] Sink for alert message subscriptions
+- [ ] Task scheduler for running scheduled tasks
+- [ ] Calendar integration to integrate with text sinks
+- [ ] Vehicle repair and maintenance tracking: embed 4Runner repair records to allow searching by service (searching tools behind MCP). Also have an MCP tool to add a new service, possibly from a photo of the repair receipt.
+- [ ] Back up local storage to S3 
