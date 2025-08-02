@@ -50,7 +50,7 @@ class TestEmailAlert:
         """Test EmailAlert validation errors."""
         # Missing required fields
         with pytest.raises(ValidationError):
-            EmailAlert(uid="12345")  # type: ignore  # Missing other required fields
+            EmailAlert(uid="12345")  # Missing other required fields
 
         # Invalid date type - use type: ignore to bypass type checker for test
         with pytest.raises(ValidationError):
@@ -59,7 +59,7 @@ class TestEmailAlert:
                 subject="Test",
                 body="Test",
                 sender="test@example.com",
-                date="invalid-date",  # type: ignore
+                date="invalid-date",
             )
 
 
@@ -82,11 +82,13 @@ class TestEmailSinkConfig:
         """Test EmailSinkConfig validation."""
         # Missing required fields
         with pytest.raises(ValidationError):
-            EmailSinkConfig(sender_pattern="test@example.com")  # type: ignore  # Missing endpoint and description
+            EmailSinkConfig(
+                sender_pattern="test@example.com"
+            )  # Missing endpoint and description
 
         # Missing description
         with pytest.raises(ValidationError):
-            EmailSinkConfig(  # type: ignore
+            EmailSinkConfig(
                 sender_pattern="test@example.com",
                 endpoint="/test",
                 # Missing description
@@ -132,7 +134,7 @@ class TestAlertRequest:
         """Test AlertRequest validation errors."""
         # Missing required fields
         with pytest.raises(ValidationError):
-            AlertRequest(uid="12345")  # type: ignore  # Missing other required fields
+            AlertRequest(uid="12345")  # Missing other required fields
 
         # Invalid date - use type: ignore to bypass type checker for test
         with pytest.raises(ValidationError):
@@ -141,5 +143,5 @@ class TestAlertRequest:
                 subject="Test",
                 body="Test",
                 sender="test@example.com",
-                date="invalid",  # type: ignore
+                date="invalid",
             )

@@ -289,11 +289,11 @@ Just send me any message and I'll respond using AI!
         try:
             # Validate and extract message data
             message_data = TelegramMessage(
-                message_id=update.message.message_id,  # type: ignore
-                chat_id=update.message.chat_id,  # type: ignore
-                text=update.message.text,  # type: ignore
-                user_id=update.message.from_user.id,  # type: ignore
-                username=update.message.from_user.username,  # type: ignore
+                message_id=update.message.message_id,
+                chat_id=update.message.chat_id,
+                text=update.message.text,
+                user_id=update.message.from_user.id,
+                username=update.message.from_user.username,
             )
 
             logger.debug(
@@ -369,8 +369,8 @@ Just send me any message and I'll respond using AI!
                     # Extract the content from Agent response
                     if "response" in response_data:
                         agent_response = response_data["response"]
-                        if agent_response:
-                            ai_response = agent_response
+                        if agent_response and isinstance(agent_response, str):
+                            ai_response = str(agent_response)
                             logger.debug(f"AI response extracted: {ai_response}")
                             return ai_response
                         else:
@@ -387,9 +387,13 @@ Just send me any message and I'll respond using AI!
                     # Try to extract specific error message from API response
                     try:
                         error_data = response.json()
-                        if "response" in error_data and error_data["response"]:
+                        if (
+                            "response" in error_data
+                            and error_data["response"]
+                            and isinstance(error_data["response"], str)
+                        ):
                             # Return the specific error message from the API
-                            return error_data["response"]
+                            return str(error_data["response"])
                     except Exception:
                         # If we can't parse JSON or extract the error message, continue to generic message
                         pass
@@ -480,7 +484,10 @@ Just send me any message and I'll respond using AI!
 
                 if response.status_code == 200:
                     data = response.json()
-                    return data.get("models", [])
+                    models = data.get("models", [])
+                    if isinstance(models, list):
+                        return [str(model) for model in models]
+                    return []
                 else:
                     logger.warning(f"Failed to get models: {response.status_code}")
                     return []

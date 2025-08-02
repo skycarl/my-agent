@@ -158,8 +158,9 @@ class SchedulerService:
                     seconds=task.schedule.interval_seconds,
                     timezone=config.scheduler_timezone,
                 )
+
             else:
-                logger.error(
+                logger.error(  # type: ignore[unreachable]
                     f"Task {task.id}: Unknown schedule type: {task.schedule.type}"
                 )
                 return False

@@ -138,14 +138,13 @@ class TestEmailMonitorService:
                 "email_sink.monitor.EmailClient", return_value=mock_email_client
             ):
                 service = EmailMonitorService()
-                service._process_sink_config = AsyncMock()
+                with patch.object(
+                    service, "_process_sink_config", new_callable=AsyncMock
+                ) as mock_process:
+                    await service.check_email_for_alerts()
 
-                await service.check_email_for_alerts()
-
-                # Should process each sink config
-                assert service._process_sink_config.call_count == len(
-                    service.email_configs
-                )
+                    # Should process each sink config
+                    assert mock_process.call_count == len(service.email_configs)
 
     @pytest.mark.asyncio
     async def test_process_sink_config_no_messages(self):
@@ -194,14 +193,18 @@ class TestEmailMonitorService:
             mock_parser.parse_raw_message.return_value = mock_alert
 
             service = EmailMonitorService()
-            service._post_alert_to_endpoint = AsyncMock(return_value=True)
+            with patch.object(
+                service,
+                "_post_alert_to_endpoint",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_post:
+                await service._process_sink_config(mock_email_client, sink_config)
 
-            await service._process_sink_config(mock_email_client, sink_config)
-
-            # Should parse and post both messages
-            assert mock_parser.parse_raw_message.call_count == 2
-            assert service._post_alert_to_endpoint.call_count == 2
-            assert mock_email_client.mark_as_read.call_count == 2
+                # Should parse and post both messages
+                assert mock_parser.parse_raw_message.call_count == 2
+                assert mock_post.call_count == 2
+                assert mock_email_client.mark_as_read.call_count == 2
 
     @pytest.mark.asyncio
     async def test_process_sink_config_parse_failure(self):
@@ -221,13 +224,14 @@ class TestEmailMonitorService:
             mock_parser.parse_raw_message.return_value = None  # Parse failure
 
             service = EmailMonitorService()
-            service._post_alert_to_endpoint = AsyncMock()
+            with patch.object(
+                service, "_post_alert_to_endpoint", new_callable=AsyncMock
+            ) as mock_post:
+                await service._process_sink_config(mock_email_client, sink_config)
 
-            await service._process_sink_config(mock_email_client, sink_config)
-
-            # Should not post or mark as read when parsing fails
-            service._post_alert_to_endpoint.assert_not_called()
-            mock_email_client.mark_as_read.assert_not_called()
+                # Should not post or mark as read when parsing fails
+                mock_post.assert_not_called()
+                mock_email_client.mark_as_read.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_post_alert_to_endpoint_success(self):

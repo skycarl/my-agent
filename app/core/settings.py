@@ -126,7 +126,7 @@ class Config(BaseSettings):
         from pydantic_settings import PydanticBaseSettingsSource
 
         # Create a temporary class that only uses init settings (defaults + passed kwargs)
-        class TestConfig(cls):
+        class TestConfig(cls):  # type: ignore
             @classmethod
             def settings_customise_sources(
                 cls,

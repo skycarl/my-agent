@@ -19,7 +19,10 @@ async def get_plants() -> str:
         if isinstance(result, dict) and "error" in result:
             return f"Error getting plants: {result['error']}"
         elif isinstance(result, dict) and "content" in result:
-            return result["content"]
+            content = result["content"]
+            if isinstance(content, str):
+                return content
+            return str(content)
         else:
             return str(result)
     except Exception as e:
@@ -45,7 +48,10 @@ async def add_plant(plant_name: str, description: str = "") -> str:
         if isinstance(result, dict) and "error" in result:
             return f"Error adding plant: {result['error']}"
         elif isinstance(result, dict) and "content" in result:
-            return result["content"]
+            content = result["content"]
+            if isinstance(content, str):
+                return content
+            return str(content)
         else:
             return str(result)
     except Exception as e:
@@ -68,7 +74,10 @@ async def get_produce_counts(plant_name: str) -> str:
         if isinstance(result, dict) and "error" in result:
             return f"Error getting produce counts: {result['error']}"
         elif isinstance(result, dict) and "content" in result:
-            return result["content"]
+            content = result["content"]
+            if isinstance(content, str):
+                return content
+            return str(content)
         else:
             return str(result)
     except Exception as e:
@@ -95,7 +104,10 @@ async def add_produce(plant_name: str, amount: str, notes: str = "") -> str:
         if isinstance(result, dict) and "error" in result:
             return f"Error adding produce: {result['error']}"
         elif isinstance(result, dict) and "content" in result:
-            return result["content"]
+            content = result["content"]
+            if isinstance(content, str):
+                return content
+            return str(content)
         else:
             return str(result)
     except Exception as e:

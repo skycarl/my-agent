@@ -105,6 +105,6 @@ def init_logging():
 
     # set logs output, level and format
     logger.configure(
-        handlers=[{"sink": sys.stdout, "level": log_level, "format": format_record}]  # type: ignore
+        handlers=[{"sink": sys.stdout, "level": log_level, "format": format_record}]
     )
     logger.add("app.log", level=log_level)

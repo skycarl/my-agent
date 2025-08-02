@@ -19,7 +19,10 @@ async def get_monorail_hours() -> str:
         if isinstance(result, dict) and "error" in result:
             return f"Error getting monorail hours: {result['error']}"
         elif isinstance(result, dict) and "content" in result:
-            return result["content"]
+            content = result["content"]
+            if isinstance(content, str):
+                return content
+            return str(content)
         else:
             return str(result)
     except Exception as e:
@@ -35,7 +38,10 @@ async def get_current_date() -> str:
         if isinstance(result, dict) and "error" in result:
             return f"Error getting current date: {result['error']}"
         elif isinstance(result, dict) and "content" in result:
-            return result["content"]
+            content = result["content"]
+            if isinstance(content, str):
+                return content
+            return str(content)
         else:
             return str(result)
     except Exception as e:

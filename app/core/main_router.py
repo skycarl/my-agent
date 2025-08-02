@@ -118,7 +118,7 @@ async def create_agent_response(request: AgentRequest):
     try:
         # Prepare input for agents SDK
         if request.input is not None:
-            agent_input = request.input
+            agent_input: str | list[dict[str, str]] = request.input
             logger.debug(f"Received single input request: {request.input}")
         elif request.messages is not None:
             # Convert messages to format expected by agents SDK
@@ -166,8 +166,7 @@ async def create_agent_response(request: AgentRequest):
 
         # Run the agent workflow using the Orchestrator
         logger.debug("Running agent workflow with Orchestrator")
-        # Type ignore: agents SDK accepts dict with role/content but type checker expects TResponseInputItem
-        result = await Runner.run(orchestrator_agent, input=agent_input)  # type: ignore
+        result = await Runner.run(orchestrator_agent, input=agent_input)
 
         logger.debug("Agent workflow completed successfully")
         logger.debug(f"Response: {result.final_output}")

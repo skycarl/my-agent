@@ -373,6 +373,9 @@ class TaskManager:
             logger.warning(f"Error formatting Telegram message: {e}")
             return f"Task '{task.name}' completed, but response formatting failed."
 
+        # This should never be reached, but mypy needs it
+        return "Task completed, but response formatting failed."
+
     def get_task_results(self, task_id: str, limit: int = 10) -> list:
         """Get recent results for a specific task."""
         return self.results_storage.get_results_for_task(task_id, limit)
