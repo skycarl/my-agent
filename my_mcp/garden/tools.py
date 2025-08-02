@@ -103,7 +103,7 @@ class ProduceCountsResponse(BaseModel):
 
 # Database file path - configurable via settings
 if not config.garden_db_path:
-    raise ValueError("MCP_SERVER_URL is not configured in settings")
+    raise ValueError("GARDEN_DB_PATH is not configured in settings")
 
 DB_FILE = Path(config.garden_db_path)
 

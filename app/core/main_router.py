@@ -155,10 +155,13 @@ async def create_agent_response(request: AgentRequest):
                 detail="OpenAI API key is not configured. Please set the OPENAI_API_KEY environment variable.",
             )
 
-        # Set the API key in environment for the Agents SDK
+        # Set the OpenAI configuration in environment for the Agents SDK
         import os
 
         os.environ["OPENAI_API_KEY"] = config.openai_api_key
+        # Configure timeout and retry settings for better handling of quota/rate limit issues
+        os.environ["OPENAI_TIMEOUT"] = str(config.openai_timeout)
+        os.environ["OPENAI_MAX_RETRIES"] = str(config.openai_max_retries)
 
         # Run the agent workflow using the Orchestrator
         logger.debug("Running agent workflow with Orchestrator")
@@ -178,12 +181,8 @@ async def create_agent_response(request: AgentRequest):
         logger.debug("Successfully returning response from /agent_response endpoint")
         return JSONResponse(content=jsonable_encoder(agent_response))
 
-    except HTTPException:
-        # Re-raise HTTP exceptions as-is
-        raise
     except Exception as e:
         logger.error(f"Error in /agent_response endpoint: {str(e)}")
-        logger.debug(f"Full error details: {e}", exc_info=True)
 
         # Return error response
         error_response = AgentResponse(
@@ -264,12 +263,8 @@ async def store_commute_alert(request: CommuteAlertRequest):
 
         return JSONResponse(content=jsonable_encoder(response))
 
-    except HTTPException:
-        # Re-raise HTTP exceptions as-is
-        raise
     except Exception as e:
         logger.error(f"Error in /commute_alert endpoint: {str(e)}")
-        logger.debug(f"Full error details: {e}", exc_info=True)
 
         # Return error response
         error_response = CommuteAlertResponse(

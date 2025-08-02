@@ -383,6 +383,17 @@ Just send me any message and I'll respond using AI!
                     logger.info(
                         f"API call failed with status {response.status_code}: {response.text}"
                     )
+
+                    # Try to extract specific error message from API response
+                    try:
+                        error_data = response.json()
+                        if "response" in error_data and error_data["response"]:
+                            # Return the specific error message from the API
+                            return error_data["response"]
+                    except Exception:
+                        # If we can't parse JSON or extract the error message, continue to generic message
+                        pass
+
                     return "Sorry, I'm having trouble connecting to my AI service. Please try again later."
 
         except httpx.TimeoutException:

@@ -25,6 +25,14 @@ class Config(BaseSettings):
         description="List of valid OpenAI models that can be used",
     )
 
+    # OpenAI API timeout and retry configuration
+    openai_timeout: int = Field(
+        default=30, description="OpenAI API request timeout in seconds"
+    )
+    openai_max_retries: int = Field(
+        default=3, description="Maximum number of retries for OpenAI API calls"
+    )
+
     # Telegram Bot Configuration
     telegram_bot_token: str = Field(default="", description="Telegram bot token")
     app_url: str = Field(
@@ -50,7 +58,8 @@ class Config(BaseSettings):
 
     # Garden Database Configuration
     garden_db_path: str = Field(
-        default="garden_db.json", description="Path to the garden database JSON file"
+        default="storage/garden_db.json",
+        description="Path to the garden database JSON file",
     )
 
     # Logging Configuration
