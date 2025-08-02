@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import BaseModel
 from app.core.auth import verify_token
+from app.models.tasks import TelegramMessageRequest, TelegramMessageResponse
 
 from app.core.settings import config
 
@@ -269,5 +270,70 @@ async def store_commute_alert(request: CommuteAlertRequest):
         # Return error response
         error_response = CommuteAlertResponse(
             success=False, message=f"Failed to store alert: {str(e)}", alert_id=""
+        )
+        return JSONResponse(status_code=500, content=jsonable_encoder(error_response))
+
+
+@router.post(
+    "/send_telegram_message", status_code=200, dependencies=[Depends(verify_token)]
+)
+async def send_telegram_message(request: TelegramMessageRequest):
+    """
+    Send a message to a Telegram user.
+
+    This endpoint allows scheduled tasks and other services to send messages
+    to Telegram users. If no user_id is specified, it sends to the authorized user.
+
+    Args:
+        request: The message request with user_id and message text
+
+    Returns:
+        Success confirmation with message details
+    """
+    try:
+        # Import here to avoid circular imports
+        from app.core.telegram_client import telegram_client
+
+        # Determine target user ID
+        target_user_id = request.user_id or config.authorized_user_id
+
+        if not target_user_id:
+            raise HTTPException(
+                status_code=400,
+                detail="No target user specified and no authorized user configured",
+            )
+
+        logger.debug(
+            f"Sending Telegram message to user {target_user_id}: {request.message}"
+        )
+
+        # Send the message
+        success, message_id = await telegram_client.send_message(
+            user_id=target_user_id,
+            message=request.message,
+            parse_mode=request.parse_mode,
+        )
+
+        if success:
+            logger.info(f"Successfully sent Telegram message to user {target_user_id}")
+            response = TelegramMessageResponse(
+                success=True,
+                message="Message sent successfully",
+                telegram_message_id=message_id,
+            )
+            return JSONResponse(content=jsonable_encoder(response))
+        else:
+            logger.warning(f"Failed to send Telegram message to user {target_user_id}")
+            response = TelegramMessageResponse(
+                success=False, message="Failed to send message"
+            )
+            return JSONResponse(status_code=500, content=jsonable_encoder(response))
+
+    except Exception as e:
+        logger.error(f"Error in /send_telegram_message endpoint: {str(e)}")
+
+        # Return error response
+        error_response = TelegramMessageResponse(
+            success=False, message=f"Failed to send message: {str(e)}"
         )
         return JSONResponse(status_code=500, content=jsonable_encoder(error_response))

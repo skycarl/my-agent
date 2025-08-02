@@ -92,6 +92,27 @@ class Config(BaseSettings):
         default="storage", description="Path to storage directory for persistent data"
     )
 
+    # Task Scheduler Configuration
+    scheduler_enabled: bool = Field(
+        default=True, description="Enable task scheduler service"
+    )
+    scheduler_timezone: str = Field(
+        default="America/Los_Angeles", description="Timezone for scheduled tasks"
+    )
+    task_config_reload_interval: int = Field(
+        default=30, description="Interval in seconds to check for task config changes"
+    )
+
+    @property
+    def tasks_config_path(self) -> str:
+        """Get the tasks configuration file path based on storage path."""
+        return f"{self.storage_path}/scheduled_tasks.json"
+
+    @property
+    def task_results_path(self) -> str:
+        """Get the task results file path based on storage path."""
+        return f"{self.storage_path}/task_results.json"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

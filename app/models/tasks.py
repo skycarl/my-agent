@@ -1,0 +1,205 @@
+"""
+Task configuration models for the scheduler service.
+"""
+
+from datetime import datetime
+from typing import Dict, List, Optional, Any, Literal
+from pydantic import BaseModel, Field
+
+
+class TaskSchedule(BaseModel):
+    """Task schedule configuration."""
+
+    type: Literal["cron", "interval"] = Field(
+        description="Schedule type: 'cron' for cron expressions, 'interval' for simple intervals"
+    )
+    expression: Optional[str] = Field(
+        default=None, description="Cron expression (e.g., '0 7 * * *' for daily at 7am)"
+    )
+    interval_seconds: Optional[int] = Field(
+        default=None, description="Interval in seconds for interval-based schedules"
+    )
+
+    def model_post_init(self, __context) -> None:
+        """Validate that the correct fields are provided based on schedule type."""
+        if self.type == "cron" and not self.expression:
+            raise ValueError("Cron expression is required for cron schedule type")
+        if self.type == "interval" and not self.interval_seconds:
+            raise ValueError("Interval seconds is required for interval schedule type")
+        if self.type == "cron" and self.interval_seconds:
+            raise ValueError("Cannot specify interval_seconds for cron schedule type")
+        if self.type == "interval" and self.expression:
+            raise ValueError(
+                "Cannot specify cron expression for interval schedule type"
+            )
+
+
+class APICallConfig(BaseModel):
+    """Configuration for API call tasks."""
+
+    endpoint: str = Field(description="API endpoint to call (e.g., '/agent_response')")
+    method: str = Field(default="POST", description="HTTP method to use")
+    payload: Dict[str, Any] = Field(description="Request payload/body")
+    headers: Optional[Dict[str, str]] = Field(
+        default=None, description="Additional headers to include"
+    )
+    timeout: int = Field(default=30, description="Request timeout in seconds")
+
+
+class TelegramConfig(BaseModel):
+    """Configuration for Telegram message sending."""
+
+    send_to_user: bool = Field(
+        default=False, description="Whether to send the result to a Telegram user"
+    )
+    user_id: Optional[int] = Field(
+        default=None,
+        description="Telegram user ID to send to (null = use authorized user)",
+    )
+    message_prefix: Optional[str] = Field(
+        default=None, description="Optional prefix to add to the message"
+    )
+    send_on_error: bool = Field(
+        default=True, description="Whether to send error messages to Telegram"
+    )
+
+
+class CustomFunctionConfig(BaseModel):
+    """Configuration for custom function tasks."""
+
+    function_name: str = Field(description="Name of the function to execute")
+    parameters: Dict[str, Any] = Field(
+        default_factory=dict, description="Parameters to pass to the function"
+    )
+
+
+class TaskConfig(BaseModel):
+    """Main task configuration model."""
+
+    id: str = Field(description="Unique task identifier")
+    name: str = Field(description="Human-readable task name")
+    type: Literal["api_call_with_telegram", "api_call_only", "custom_function"] = Field(
+        description="Type of task to execute"
+    )
+    enabled: bool = Field(default=True, description="Whether the task is enabled")
+    schedule: TaskSchedule = Field(description="Task schedule configuration")
+
+    # Task-specific configurations
+    api_call: Optional[APICallConfig] = Field(
+        default=None, description="API call configuration (required for api_call tasks)"
+    )
+    telegram: Optional[TelegramConfig] = Field(
+        default=None,
+        description="Telegram configuration (required for tasks with telegram)",
+    )
+    custom_function: Optional[CustomFunctionConfig] = Field(
+        default=None,
+        description="Custom function configuration (required for custom_function tasks)",
+    )
+
+    # Task metadata
+    description: Optional[str] = Field(default=None, description="Task description")
+    max_retries: int = Field(default=3, description="Maximum number of retry attempts")
+    retry_delay: int = Field(default=60, description="Delay between retries in seconds")
+
+    def model_post_init(self, __context) -> None:
+        """Validate that required configurations are provided based on task type."""
+        if (
+            self.type in ["api_call_with_telegram", "api_call_only"]
+            and not self.api_call
+        ):
+            raise ValueError(
+                f"api_call configuration is required for task type '{self.type}'"
+            )
+
+        if self.type == "api_call_with_telegram" and not self.telegram:
+            raise ValueError(
+                "telegram configuration is required for 'api_call_with_telegram' task type"
+            )
+
+        if self.type == "custom_function" and not self.custom_function:
+            raise ValueError(
+                "custom_function configuration is required for 'custom_function' task type"
+            )
+
+
+class TasksConfiguration(BaseModel):
+    """Root configuration containing all tasks."""
+
+    tasks: List[TaskConfig] = Field(
+        default_factory=list, description="List of task configurations"
+    )
+    version: str = Field(default="1.0", description="Configuration file version")
+    last_modified: Optional[datetime] = Field(
+        default=None, description="Last modification timestamp"
+    )
+
+
+class TaskExecutionResult(BaseModel):
+    """Result of a task execution."""
+
+    task_id: str = Field(description="ID of the executed task")
+    execution_id: str = Field(description="Unique execution identifier")
+    started_at: datetime = Field(description="Task start timestamp")
+    completed_at: Optional[datetime] = Field(
+        default=None, description="Task completion timestamp"
+    )
+    success: bool = Field(description="Whether the task completed successfully")
+    error_message: Optional[str] = Field(
+        default=None, description="Error message if task failed"
+    )
+    result_data: Optional[Dict[str, Any]] = Field(
+        default=None, description="Task result data"
+    )
+    retry_count: int = Field(default=0, description="Number of retries performed")
+    next_retry_at: Optional[datetime] = Field(
+        default=None, description="Next retry timestamp if applicable"
+    )
+
+
+class TaskResultsStorage(BaseModel):
+    """Storage model for task execution results."""
+
+    results: List[TaskExecutionResult] = Field(
+        default_factory=list, description="List of task execution results"
+    )
+    max_results: int = Field(
+        default=1000, description="Maximum number of results to keep"
+    )
+
+    def add_result(self, result: TaskExecutionResult) -> None:
+        """Add a new result and maintain the maximum results limit."""
+        self.results.append(result)
+
+        # Keep only the most recent results
+        if len(self.results) > self.max_results:
+            self.results = self.results[-self.max_results :]
+
+    def get_results_for_task(
+        self, task_id: str, limit: int = 10
+    ) -> List[TaskExecutionResult]:
+        """Get recent results for a specific task."""
+        task_results = [r for r in self.results if r.task_id == task_id]
+        return sorted(task_results, key=lambda x: x.started_at, reverse=True)[:limit]
+
+
+class TelegramMessageRequest(BaseModel):
+    """Request model for sending Telegram messages."""
+
+    user_id: Optional[int] = Field(
+        default=None, description="Telegram user ID (null = use authorized user)"
+    )
+    message: str = Field(description="Message text to send")
+    parse_mode: Optional[str] = Field(
+        default=None, description="Telegram parse mode (e.g., 'Markdown', 'HTML')"
+    )
+
+
+class TelegramMessageResponse(BaseModel):
+    """Response model for Telegram message sending."""
+
+    success: bool = Field(description="Whether the message was sent successfully")
+    message: str = Field(description="Status message")
+    telegram_message_id: Optional[int] = Field(
+        default=None, description="Telegram message ID if successful"
+    )
