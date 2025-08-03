@@ -337,7 +337,7 @@ async def process_alert(request: AlertRequest):
                     ]
 
             except json.JSONDecodeError as e:
-                # Agent response is not valid JSON
+                # Agent response is not valid JSON - send raw response to user for debugging
                 logger.error(
                     f"Agent response is not valid JSON for alert {request.uid}: {e}"
                 )
@@ -345,8 +345,41 @@ async def process_alert(request: AlertRequest):
                     "alert_processed",
                     "response_parse_error",
                 ]
+
+                # Send raw agent response to user for debugging
+                try:
+                    # Import here to avoid circular imports
+                    from app.core.telegram_client import telegram_client
+
+                    # Send the raw response for debugging
+                    target_user_id = config.authorized_user_id
+                    if target_user_id:
+                        debug_message = f"⚠️ Agent returned malformed JSON for alert {request.uid}:\n\nRaw response:\n{agent_response}"
+                        success, message_id = await telegram_client.send_message(
+                            user_id=target_user_id,
+                            message=debug_message,
+                            parse_mode="HTML",
+                        )
+
+                        if success:
+                            logger.info(
+                                f"Sent debug message for malformed JSON alert {request.uid}"
+                            )
+                        else:
+                            logger.warning(
+                                f"Failed to send debug message for alert {request.uid}"
+                            )
+                    else:
+                        logger.warning(
+                            "No authorized user ID configured for debug notifications"
+                        )
+
+                except Exception as debug_e:
+                    logger.error(
+                        f"Error sending debug message for alert {request.uid}: {debug_e}"
+                    )
             except Exception as e:
-                # Other parsing errors
+                # Other parsing errors - send raw response to user for debugging
                 logger.error(
                     f"Error processing agent response for alert {request.uid}: {e}"
                 )
@@ -354,6 +387,39 @@ async def process_alert(request: AlertRequest):
                     "alert_processed",
                     "response_processing_error",
                 ]
+
+                # Send raw agent response to user for debugging
+                try:
+                    # Import here to avoid circular imports
+                    from app.core.telegram_client import telegram_client
+
+                    # Send the raw response for debugging
+                    target_user_id = config.authorized_user_id
+                    if target_user_id:
+                        debug_message = f"⚠️ Agent response processing error for alert {request.uid}:\n\nError: {str(e)}\n\nRaw response:\n{agent_response}"
+                        success, message_id = await telegram_client.send_message(
+                            user_id=target_user_id,
+                            message=debug_message,
+                            parse_mode="HTML",
+                        )
+
+                        if success:
+                            logger.info(
+                                f"Sent debug message for processing error alert {request.uid}"
+                            )
+                        else:
+                            logger.warning(
+                                f"Failed to send debug message for alert {request.uid}"
+                            )
+                    else:
+                        logger.warning(
+                            "No authorized user ID configured for debug notifications"
+                        )
+
+                except Exception as debug_e:
+                    logger.error(
+                        f"Error sending debug message for alert {request.uid}: {debug_e}"
+                    )
 
             # If notification handling failed, default to basic processing
             if not notification_handled:
