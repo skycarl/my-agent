@@ -78,7 +78,7 @@ commute_agent = Agent(
     - Always consider what day it is today (use your get_current_date tool when relevant).
     - Use your tools to answer the user's query.
     - Do not make up information that is not grounded in a tool response. If you cannot answer the user's query because you don't have enough information, say so. 
-    - Always use "notify_user": True because you were asked a direct question by the user.
+    - Always use `"notify_user": True` because you were asked a direct question by the user.
     - Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
 
     When you receive "Process this alert:" followed by JSON data:
@@ -92,6 +92,7 @@ commute_agent = Agent(
         * Elevator outages
         * Vending machine outages
         * Other non-commute related alerts
+    - If the alert contains any hyperlinks, do not relay them to the user.
     
     Examples:
     

@@ -43,7 +43,7 @@ You can use the provided `env.example` file as a template:
 
 ```
 # Authentication
-X_TOKEN=12345678910
+X_TOKEN=123
 
 # OpenAI Configuration
 # Set your OpenAI API key here (leave empty if not using OpenAI services)
@@ -184,3 +184,7 @@ You can also run specific hooks or run them only on staged files. See the [pre-c
 - [ ] Calendar integration to integrate with text sinks
 - [ ] Vehicle repair and maintenance tracking: embed 4Runner repair records to allow searching by service (searching tools behind MCP). Also have an MCP tool to add a new service, possibly from a photo of the repair receipt.
 - [ ] Back up local storage to S3 
+- [ ] Send a recipe link and it grabs the recipe and saves it to my Obsidian notes 
+- [ ] Fetch current status of alerts from Sound Transit
+- [ ] Persist message history (to include alert history) on disk rather than in memory for consistent conversation history
+   - [ ] Handle duplicated alerts by checking conversation history, and only send a new alert if there is new information 
