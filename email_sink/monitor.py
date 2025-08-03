@@ -55,7 +55,7 @@ class EmailMonitorService:
             self.email_configs.append(
                 EmailSinkConfig(
                     sender_pattern=pattern,
-                    endpoint="/commute_alert",  # For now, all patterns route to commute_alert
+                    endpoint="/process_alert",  # All patterns route to process_alert for agent processing
                     description=f"Email alerts from pattern: {pattern}",
                 )
             )

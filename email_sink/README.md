@@ -24,9 +24,9 @@ Filters by configurable sender patterns (e.g. "alerts@, @transit.gov, notificati
    ↓
 Parses email content
    ↓
-POST to internal endpoint (/commute_alert)
+POST to internal endpoint (/process_alert)
    ↓
-Writes structured alert to persistent JSON storage
+Agent processes alert and writes to persistent JSON storage with metadata
 ```
 
 ## Setup
@@ -121,9 +121,9 @@ EMAIL_SENDER_PATTERNS=alerts@,@weatherservice.gov,emergency@,notifications@trans
 
 ## API Endpoints
 
-### POST /commute_alert
+### POST /process_alert
 
-Receives and stores commute alerts from the email sink service.
+Processes alerts through the agent system and stores them with processing metadata.
 
 **Request Body:**
 ```json
@@ -141,8 +141,16 @@ Receives and stores commute alerts from the email sink service.
 ```json
 {
   "success": true,
-  "message": "Alert stored successfully",
-  "alert_id": "alert_1_12345"
+  "message": "Alert processed and stored successfully",
+  "alert_id": "alert_1_12345",
+  "agent_processing": {
+    "success": true,
+    "primary_agent": "Commute Assistant",
+    "actions_taken": ["send_user_notification"],
+    "agent_response": "I've analyzed this traffic alert and notified you about the delays on I-95.",
+    "processing_time_ms": 1500,
+    "error_message": null
+  }
 }
 ```
 
@@ -160,7 +168,15 @@ Alerts are stored in JSON format in the `storage/commute_alerts.json` file:
     "sender": "alerts@transit.local.gov",
     "received_date": "2025-01-15T08:30:00Z",
     "stored_date": "2025-01-15T08:30:15Z",
-    "alert_type": "email"
+    "alert_type": "email",
+    "agent_processing": {
+      "success": true,
+      "primary_agent": "Commute Assistant",
+      "actions_taken": ["send_user_notification"],
+      "agent_response": "I've analyzed this traffic alert and sent you a notification about the I-95 delays.",
+      "processing_time_ms": 1500,
+      "error_message": null
+    }
   }
 ]
 ```

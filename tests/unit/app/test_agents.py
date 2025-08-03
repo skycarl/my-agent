@@ -56,7 +56,7 @@ class TestAgentConfiguration:
     def test_commute_agent_configuration(self):
         """Test that Commute agent is properly configured."""
         assert commute_agent.name == "Commute Assistant"
-        assert len(commute_agent.tools) == 2
+        assert len(commute_agent.tools) == 2  # get_monorail_hours, get_current_date
         assert commute_agent.model is not None
         assert commute_agent.instructions is not None
         assert "commute" in commute_agent.instructions.lower()
@@ -79,7 +79,7 @@ class TestAgentConfiguration:
 
         # Test that commute agent tools exist
         assert commute_agent.tools is not None
-        assert len(commute_agent.tools) == 2
+        assert len(commute_agent.tools) == 2  # get_monorail_hours, get_current_date
 
         # Test that handoffs exist
         assert orchestrator_agent.handoffs is not None

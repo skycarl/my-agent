@@ -8,7 +8,13 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import BaseModel
 from app.core.auth import verify_token
-from app.models.tasks import TelegramMessageRequest, TelegramMessageResponse
+from app.models.tasks import (
+    TelegramMessageRequest,
+    TelegramMessageResponse,
+    AlertRequest,
+    AlertResponse,
+    AgentProcessingMetadata,
+)
 
 from app.core.settings import config
 
@@ -66,25 +72,6 @@ class ModelsResponse(BaseModel):
 
     models: list[str]
     default_model: str = "gpt-4o"
-
-
-class CommuteAlertRequest(BaseModel):
-    """Request model for commute alert data."""
-
-    uid: str
-    subject: str
-    body: str
-    sender: str
-    date: datetime
-    alert_type: str = "email"
-
-
-class CommuteAlertResponse(BaseModel):
-    """Response model for commute alert storage."""
-
-    success: bool
-    message: str
-    alert_id: str
 
 
 @router.get("/healthcheck", status_code=200, response_model=HealthResponse)
@@ -193,26 +180,206 @@ async def create_agent_response(request: AgentRequest):
         return JSONResponse(status_code=500, content=jsonable_encoder(error_response))
 
 
-@router.post("/commute_alert", status_code=201, dependencies=[Depends(verify_token)])
-async def store_commute_alert(request: CommuteAlertRequest):
+@router.post("/process_alert", status_code=201, dependencies=[Depends(verify_token)])
+async def process_alert(request: AlertRequest):
     """
-    Store a commute alert to persistent JSON storage.
+    Process an alert through the agent system and store the result.
 
-    This endpoint receives commute alerts from the email sink service
-    and stores them in a JSON file for later retrieval.
+    This endpoint receives alerts from the email sink service or other sources,
+    processes them through the orchestrator agent system, and stores the results
+    with agent processing metadata.
 
     Args:
-        request: The commute alert data
+        request: The alert data to process
 
     Returns:
-        Success confirmation with alert ID
+        Success confirmation with alert ID and agent processing metadata
     """
+    start_time = datetime.now()
+    agent_metadata = AgentProcessingMetadata(
+        success=False,
+        primary_agent=None,
+        actions_taken=[],
+        agent_response=None,
+        processing_time_ms=None,
+        error_message=None,
+    )
+
     try:
-        # Ensure storage directory exists
+        # Format alert as instructions for the orchestrator agent
+        alert_data = {
+            "uid": request.uid,
+            "subject": request.subject,
+            "body": request.body,
+            "sender": request.sender,
+            "date": request.date.isoformat(),
+            "alert_type": request.alert_type,
+        }
+
+        agent_input = f"Process this alert: {json.dumps(alert_data)}"
+
+        logger.debug(f"Processing alert {request.uid} through orchestrator agent")
+        logger.debug(f"Alert data: {alert_data}")
+
+        # Ensure OpenAI API key is available
+        if not config.openai_api_key:
+            raise HTTPException(
+                status_code=500,
+                detail="OpenAI API key is not configured. Please set the OPENAI_API_KEY environment variable.",
+            )
+
+        # Set the OpenAI configuration in environment for the Agents SDK
+        import os
+
+        os.environ["OPENAI_API_KEY"] = config.openai_api_key
+        os.environ["OPENAI_TIMEOUT"] = str(config.openai_timeout)
+        os.environ["OPENAI_MAX_RETRIES"] = str(config.openai_max_retries)
+
+        # Process alert through orchestrator agent
+        try:
+            result = await Runner.run(orchestrator_agent, input=agent_input)
+
+            # Extract agent processing metadata
+            processing_time = (datetime.now() - start_time).total_seconds() * 1000
+            agent_metadata.success = True
+            agent_metadata.agent_response = result.final_output
+            agent_metadata.processing_time_ms = int(processing_time)
+            agent_metadata.primary_agent = (
+                "Orchestrator"  # Could be updated if we can detect handoffs
+            )
+
+            # Try to parse agent response as JSON to check for notification decision
+            agent_response = result.final_output.strip()
+            notification_handled = False
+
+            try:
+                # Parse the agent response as JSON
+                response_data = json.loads(agent_response)
+
+                # Check for required keys
+                if (
+                    "notify_user" in response_data
+                    and "message_content" in response_data
+                ):
+                    notify_user = response_data.get("notify_user", False)
+                    message_content = response_data.get("message_content", "")
+
+                    if notify_user and message_content.strip():
+                        # Agent wants to send a notification
+                        try:
+                            # Import here to avoid circular imports
+                            from app.core.telegram_client import telegram_client
+
+                            # Send the notification
+                            target_user_id = config.authorized_user_id
+                            if target_user_id:
+                                (
+                                    success,
+                                    message_id,
+                                ) = await telegram_client.send_message(
+                                    user_id=target_user_id,
+                                    message=message_content,
+                                    parse_mode="HTML",
+                                )
+
+                                if success:
+                                    agent_metadata.actions_taken = [
+                                        "alert_processed",
+                                        "notification_sent",
+                                    ]
+                                    logger.info(
+                                        f"Successfully sent Telegram notification for alert {request.uid}"
+                                    )
+                                else:
+                                    agent_metadata.actions_taken = [
+                                        "alert_processed",
+                                        "notification_failed",
+                                    ]
+                                    logger.warning(
+                                        f"Failed to send Telegram notification for alert {request.uid}"
+                                    )
+                            else:
+                                agent_metadata.actions_taken = [
+                                    "alert_processed",
+                                    "notification_skipped_no_user",
+                                ]
+                                logger.warning(
+                                    "No authorized user ID configured for notifications"
+                                )
+
+                        except Exception as e:
+                            agent_metadata.actions_taken = [
+                                "alert_processed",
+                                "notification_error",
+                            ]
+                            logger.error(
+                                f"Error sending Telegram notification for alert {request.uid}: {e}"
+                            )
+                    else:
+                        # Agent decided not to notify
+                        agent_metadata.actions_taken = [
+                            "alert_processed",
+                            "notification_not_needed",
+                        ]
+                        logger.info(
+                            f"Agent determined no notification needed for alert {request.uid}: {message_content}"
+                        )
+
+                    notification_handled = True
+                else:
+                    # Missing required keys in JSON response
+                    logger.error(
+                        f"Agent response missing required keys (notify_user, message_content) for alert {request.uid}"
+                    )
+                    agent_metadata.actions_taken = [
+                        "alert_processed",
+                        "response_format_error",
+                    ]
+
+            except json.JSONDecodeError as e:
+                # Agent response is not valid JSON
+                logger.error(
+                    f"Agent response is not valid JSON for alert {request.uid}: {e}"
+                )
+                agent_metadata.actions_taken = [
+                    "alert_processed",
+                    "response_parse_error",
+                ]
+            except Exception as e:
+                # Other parsing errors
+                logger.error(
+                    f"Error processing agent response for alert {request.uid}: {e}"
+                )
+                agent_metadata.actions_taken = [
+                    "alert_processed",
+                    "response_processing_error",
+                ]
+
+            # If notification handling failed, default to basic processing
+            if not notification_handled:
+                if not agent_metadata.actions_taken:
+                    agent_metadata.actions_taken = ["alert_processed"]
+                logger.info(
+                    f"Alert {request.uid} processed but notification handling was skipped due to response format issues"
+                )
+
+            logger.info(f"Successfully processed alert {request.uid} through agents")
+            logger.debug(f"Agent response: {result.final_output}")
+
+        except Exception as e:
+            processing_time = (datetime.now() - start_time).total_seconds() * 1000
+            agent_metadata.success = False
+            agent_metadata.error_message = f"Agent processing failed: {str(e)}"
+            agent_metadata.processing_time_ms = int(processing_time)
+
+            logger.error(f"Agent processing failed for alert {request.uid}: {e}")
+            # Continue to store the alert even if agent processing failed
+
+        # Store alert with agent metadata
         storage_dir = Path(config.storage_path)
         storage_dir.mkdir(exist_ok=True)
 
-        # Define the alerts file path
+        # Define the alerts file path (keeping same file name for compatibility)
         alerts_file = storage_dir / "commute_alerts.json"
 
         # Load existing alerts or create empty list
@@ -225,7 +392,7 @@ async def store_commute_alert(request: CommuteAlertRequest):
                 logger.warning(f"Error reading existing alerts file: {e}")
                 alerts = []
 
-        # Create the alert record
+        # Create the alert record with agent metadata
         alert_record = {
             "id": f"alert_{len(alerts) + 1}_{request.uid}",
             "uid": request.uid,
@@ -235,6 +402,7 @@ async def store_commute_alert(request: CommuteAlertRequest):
             "received_date": request.date.isoformat(),
             "stored_date": datetime.now().isoformat(),
             "alert_type": request.alert_type,
+            "agent_processing": agent_metadata.model_dump(),
         }
 
         # Add to alerts list
@@ -243,7 +411,7 @@ async def store_commute_alert(request: CommuteAlertRequest):
         # Write back to file with proper error handling
         try:
             with open(alerts_file, "w", encoding="utf-8") as f:
-                json.dump(alerts, f, indent=2, ensure_ascii=False)
+                json.dump(alerts, f, indent=2, ensure_ascii=False, default=str)
         except Exception as e:
             logger.error(f"Failed to write alerts to file: {e}")
             raise HTTPException(
@@ -251,24 +419,35 @@ async def store_commute_alert(request: CommuteAlertRequest):
             )
 
         logger.info(
-            f"Successfully stored commute alert {alert_record['id']} from {request.sender}"
+            f"Successfully stored alert {alert_record['id']} from {request.sender} "
+            f"with agent processing {'success' if agent_metadata.success else 'failure'}"
         )
 
         # Return success response
-        response = CommuteAlertResponse(
+        response = AlertResponse(
             success=True,
-            message="Alert stored successfully",
+            message="Alert processed and stored successfully",
             alert_id=alert_record["id"],
+            agent_processing=agent_metadata,
         )
 
         return JSONResponse(content=jsonable_encoder(response))
 
     except Exception as e:
-        logger.error(f"Error in /commute_alert endpoint: {str(e)}")
+        processing_time = (datetime.now() - start_time).total_seconds() * 1000
+        logger.error(f"Error in /process_alert endpoint: {str(e)}")
+
+        # Update agent metadata with error info
+        agent_metadata.success = False
+        agent_metadata.error_message = f"Endpoint error: {str(e)}"
+        agent_metadata.processing_time_ms = int(processing_time)
 
         # Return error response
-        error_response = CommuteAlertResponse(
-            success=False, message=f"Failed to store alert: {str(e)}", alert_id=""
+        error_response = AlertResponse(
+            success=False,
+            message=f"Failed to process alert: {str(e)}",
+            alert_id="",
+            agent_processing=agent_metadata,
         )
         return JSONResponse(status_code=500, content=jsonable_encoder(error_response))
 

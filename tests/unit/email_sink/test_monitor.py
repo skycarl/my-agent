@@ -31,7 +31,7 @@ class TestEmailMonitorService:
             assert len(service.email_configs) == 1
             config = service.email_configs[0]
             assert config.sender_pattern == "alerts@"
-            assert config.endpoint == "/commute_alert"
+            assert config.endpoint == "/process_alert"
             assert config.description == "Email alerts from pattern: alerts@"
 
     def test_load_email_configs_multiple_patterns(self):
@@ -48,19 +48,19 @@ class TestEmailMonitorService:
             # Check first pattern
             config1 = service.email_configs[0]
             assert config1.sender_pattern == "alerts@"
-            assert config1.endpoint == "/commute_alert"
+            assert config1.endpoint == "/process_alert"
             assert config1.description == "Email alerts from pattern: alerts@"
 
             # Check second pattern
             config2 = service.email_configs[1]
             assert config2.sender_pattern == "@transit.gov"
-            assert config2.endpoint == "/commute_alert"
+            assert config2.endpoint == "/process_alert"
             assert config2.description == "Email alerts from pattern: @transit.gov"
 
             # Check third pattern
             config3 = service.email_configs[2]
             assert config3.sender_pattern == "notifications@weather.gov"
-            assert config3.endpoint == "/commute_alert"
+            assert config3.endpoint == "/process_alert"
             assert (
                 config3.description
                 == "Email alerts from pattern: notifications@weather.gov"

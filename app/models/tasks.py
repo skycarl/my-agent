@@ -203,3 +203,46 @@ class TelegramMessageResponse(BaseModel):
     telegram_message_id: Optional[int] = Field(
         default=None, description="Telegram message ID if successful"
     )
+
+
+class AgentProcessingMetadata(BaseModel):
+    """Metadata about agent processing of an alert."""
+
+    success: bool = Field(description="Whether agent processing completed successfully")
+    primary_agent: Optional[str] = Field(
+        default=None, description="Name of the primary agent that processed the alert"
+    )
+    actions_taken: List[str] = Field(
+        default_factory=list, description="List of actions/tools the agent used"
+    )
+    agent_response: Optional[str] = Field(
+        default=None, description="Final response from the agent"
+    )
+    processing_time_ms: Optional[int] = Field(
+        default=None, description="Time taken for agent processing in milliseconds"
+    )
+    error_message: Optional[str] = Field(
+        default=None, description="Error message if processing failed"
+    )
+
+
+class AlertRequest(BaseModel):
+    """Request model for posting alerts to internal endpoints (formerly CommuteAlertRequest)."""
+
+    uid: str
+    subject: str
+    body: str
+    sender: str
+    date: datetime
+    alert_type: str = Field(default="email", description="Type of alert")
+
+
+class AlertResponse(BaseModel):
+    """Response model for alert processing (formerly CommuteAlertResponse)."""
+
+    success: bool = Field(description="Whether the alert was processed successfully")
+    message: str = Field(description="Status message")
+    alert_id: str = Field(description="Unique identifier for the stored alert")
+    agent_processing: Optional[AgentProcessingMetadata] = Field(
+        default=None, description="Metadata about agent processing"
+    )
