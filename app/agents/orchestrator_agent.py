@@ -8,14 +8,34 @@ agent should handle each request through agent handoffs.
 from agents import Agent
 from loguru import logger
 from app.core.settings import config
-from .gardener_agent import gardener_agent
-from .commute_agent import commute_agent
+from .gardener_agent import create_gardener_agent
+from .commute_agent import create_commute_agent
 
 
-# Create the Orchestrator agent with handoffs to specialized agents
-orchestrator_agent = Agent(
-    name="Orchestrator",
-    instructions="""You are an intelligent orchestrator that routes user requests and processes alerts by delegating to appropriate specialized agents.
+def create_orchestrator_agent(model: str = None) -> Agent:
+    """
+    Create an Orchestrator agent with handoffs to specialized agents.
+
+    Args:
+        model: The OpenAI model to use for this agent and its handoffs
+
+    Returns:
+        Configured Orchestrator agent
+    """
+    # Use provided model or fall back to default
+    agent_model = (
+        model or config.valid_openai_models[0]
+        if config.valid_openai_models
+        else "gpt-4o-mini"
+    )
+
+    # Create specialized agents with the same model
+    gardener_agent = create_gardener_agent(agent_model)
+    commute_agent = create_commute_agent(agent_model)
+
+    orchestrator = Agent(
+        name="Orchestrator",
+        instructions="""You are an intelligent orchestrator that routes user requests and processes alerts by delegating to appropriate specialized agents.
 
     You have access to the following specialized agents:
     
@@ -65,12 +85,11 @@ orchestrator_agent = Agent(
     
     Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
     """,
-    handoffs=[gardener_agent, commute_agent],
-    model=config.valid_openai_models[0]
-    if config.valid_openai_models
-    else "gpt-4o-mini",
-)
+        handoffs=[gardener_agent, commute_agent],
+        model=agent_model,
+    )
 
-logger.debug(
-    "Orchestrator agent created with handoffs to Gardener and Commute Assistant agents"
-)
+    logger.debug(
+        f"Orchestrator agent created with model '{agent_model}' and handoffs to Gardener and Commute Assistant agents"
+    )
+    return orchestrator

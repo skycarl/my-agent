@@ -180,11 +180,16 @@ You can also run specific hooks or run them only on staged files. See the [pre-c
 # Ideas
 
 - [x] Sink for alert message subscriptions
-- [ ] Task scheduler for running scheduled tasks
+- [x] Task scheduler for running scheduled tasks
 - [ ] Calendar integration to integrate with text sinks
-- [ ] Vehicle repair and maintenance tracking: embed 4Runner repair records to allow searching by service (searching tools behind MCP). Also have an MCP tool to add a new service, possibly from a photo of the repair receipt.
+- [ ] Vehicle repair and maintenance tracking: embed vehicle repair records to allow searching by service (searching tools behind MCP). Also have an MCP tool to add a new service, possibly from a photo of the repair receipt.
 - [ ] Back up local storage to S3 
-- [ ] Send a recipe link and it grabs the recipe and saves it to my Obsidian notes 
+- [ ] Integrate with Obsidian notes 
+   - [ ] Send a recipe link and it grabs the recipe and saves it to my Obsidian notes 
 - [ ] Fetch current status of alerts from Sound Transit
 - [ ] Persist message history (to include alert history) on disk rather than in memory for consistent conversation history
    - [ ] Handle duplicated alerts by checking conversation history, and only send a new alert if there is new information 
+- [ ] Memory for keeping track of when the user is going into the office, so we can ignore commute alerts when they are not in the office
+- [ ] Ability to update the scheduled tasks file via conversation
+- [ ] BAML for prompts and output parsing
+- [ ] Fix agent default models

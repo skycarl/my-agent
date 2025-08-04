@@ -115,10 +115,26 @@ async def add_produce(plant_name: str, amount: str, notes: str = "") -> str:
         return f"Error adding produce: {str(e)}"
 
 
-# Create the Gardener agent with MCP tools
-gardener_agent = Agent(
-    name="Gardener",
-    instructions="""You are a specialized garden management assistant. You help users:
+def create_gardener_agent(model: str = None) -> Agent:
+    """
+    Create a Gardener agent with MCP tools.
+
+    Args:
+        model: The OpenAI model to use for this agent
+
+    Returns:
+        Configured Gardener agent
+    """
+    # Use provided model or fall back to default
+    agent_model = (
+        model or config.valid_openai_models[0]
+        if config.valid_openai_models
+        else "gpt-4o-mini"
+    )
+
+    gardener = Agent(
+        name="Gardener",
+        instructions="""You are a specialized garden management assistant. You help users:
     
     1. Track plants in their garden
     2. Record harvest information
@@ -135,10 +151,11 @@ gardener_agent = Agent(
     Provide clear, actionable responses about their garden management tasks.
     Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
     """,
-    tools=[get_plants, add_plant, get_produce_counts, add_produce],
-    model=config.valid_openai_models[0]
-    if config.valid_openai_models
-    else "gpt-4o-mini",
-)
+        tools=[get_plants, add_plant, get_produce_counts, add_produce],
+        model=agent_model,
+    )
 
-logger.debug("Gardener agent created with MCP tools integration")
+    logger.debug(
+        f"Gardener agent created with model '{agent_model}' and MCP tools integration"
+    )
+    return gardener

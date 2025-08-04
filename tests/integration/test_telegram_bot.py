@@ -5,7 +5,7 @@ Tests for the Telegram bot module.
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
-from telegram_bot.bot import TelegramMessage, APIMessage, APIRequest, TelegramBot
+from telegram_bot.bot import TelegramMessage, TelegramBot
 
 
 class TestTelegramMessage:
@@ -43,31 +43,7 @@ class TestTelegramMessage:
         assert message.username is None
 
 
-class TestAPIMessage:
-    """Test APIMessage pydantic model."""
-
-    def test_valid_api_message(self):
-        """Test creating a valid API message."""
-        message = APIMessage(role="user", content="Hello")
-
-        assert message.role == "user"
-        assert message.content == "Hello"
-
-
-class TestAPIRequest:
-    """Test APIRequest pydantic model."""
-
-    def test_valid_api_request(self):
-        """Test creating a valid API request."""
-        messages = [
-            APIMessage(role="user", content="Hello"),
-            APIMessage(role="assistant", content="Hi there!"),
-        ]
-        request = APIRequest(messages=messages)
-
-        assert len(request.messages) == 2
-        assert request.messages[0].role == "user"
-        assert request.messages[1].role == "assistant"
+# APIMessage and APIRequest classes removed - using simple dict format for fire-and-forget calls
 
 
 class TestTelegramBot:
@@ -148,8 +124,8 @@ class TestTelegramBot:
             assert "Available commands:" in call_args
 
     @pytest.mark.asyncio
-    async def test_get_ai_response_success(self):
-        """Test successful AI response."""
+    async def test_send_message_to_backend_success(self):
+        """Test successful message sending to backend."""
         with patch("telegram_bot.bot.config") as mock_config:
             mock_config.telegram_bot_token = "test_token"
             mock_config.app_url = "http://localhost:8000"
@@ -162,21 +138,25 @@ class TestTelegramBot:
             # Mock successful API response
             mock_response = Mock()
             mock_response.status_code = 200
-            mock_response.json.return_value = {"response": "AI response here"}
+            mock_response.json.return_value = {
+                "success": True,
+                "message": "Message processed",
+            }
 
             with patch("httpx.AsyncClient") as mock_client:
                 mock_client.return_value.__aenter__.return_value.post = AsyncMock(
                     return_value=mock_response
                 )
 
-                conversation_history = [APIMessage(role="user", content="Hello")]
-                response = await bot.get_ai_response(conversation_history)
+                # Should not raise any exceptions (fire-and-forget)
+                await bot.send_message_to_backend("Hello")
 
-                assert response == "AI response here"
+                # Verify the API call was made
+                mock_client.return_value.__aenter__.return_value.post.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_get_ai_response_api_error(self):
-        """Test API error handling."""
+    async def test_send_message_to_backend_api_error(self):
+        """Test backend API error handling (should not raise exceptions)."""
         with patch("telegram_bot.bot.config") as mock_config:
             mock_config.telegram_bot_token = "test_token"
             mock_config.app_url = "http://localhost:8000"
@@ -196,49 +176,13 @@ class TestTelegramBot:
                     return_value=mock_response
                 )
 
-                conversation_history = [APIMessage(role="user", content="Hello")]
-                response = await bot.get_ai_response(conversation_history)
+                # Should not raise exceptions even on error (fire-and-forget)
+                await bot.send_message_to_backend("Hello")
 
-                assert "trouble connecting" in response
+                # Verify the API call was made
+                mock_client.return_value.__aenter__.return_value.post.assert_called_once()
 
-    def test_conversation_history_management(self):
-        """Test conversation history management."""
-        with patch("telegram_bot.bot.config") as mock_config:
-            mock_config.telegram_bot_token = "test_token"
-            mock_config.app_url = "http://localhost:8000"
-            mock_config.x_token = "test_x_token"
-            mock_config.max_conversation_history = 3
-            mock_config.authorized_user_id = 123
-
-            bot = TelegramBot()
-            user_id = 123
-
-            # Test adding messages
-            bot._add_message_to_history(user_id, "user", "Hello")
-            bot._add_message_to_history(user_id, "assistant", "Hi there!")
-
-            history = bot._get_conversation_history(user_id)
-            assert len(history) == 2
-            assert history[0].role == "user"
-            assert history[0].content == "Hello"
-            assert history[1].role == "assistant"
-            assert history[1].content == "Hi there!"
-
-            # Test conversation truncation
-            bot._add_message_to_history(user_id, "user", "Message 3")
-            bot._add_message_to_history(user_id, "assistant", "Response 3")
-
-            history = bot._get_conversation_history(user_id)
-            assert len(history) == 3  # Should be truncated to max_conversation_history
-            assert (
-                history[0].role == "assistant"
-            )  # Should keep the most recent messages
-            assert history[0].content == "Hi there!"
-
-            # Test clearing history
-            bot._clear_conversation_history(user_id)
-            history = bot._get_conversation_history(user_id)
-            assert len(history) == 0
+    # Conversation history management moved to backend - these tests are no longer applicable
 
     @pytest.mark.asyncio
     async def test_clear_command(self):
@@ -252,32 +196,32 @@ class TestTelegramBot:
 
             bot = TelegramBot()
 
-            # Add some conversation history
-            user_id = 123
-            bot._add_message_to_history(user_id, "user", "Hello")
-            bot._add_message_to_history(user_id, "assistant", "Hi there!")
+            # Mock successful backend response
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"success": True}
 
-            # Verify history exists
-            history = bot._get_conversation_history(user_id)
-            assert len(history) == 2
+            with patch("httpx.AsyncClient") as mock_client:
+                mock_client.return_value.__aenter__.return_value.post = AsyncMock(
+                    return_value=mock_response
+                )
 
-            # Mock update and context
-            mock_update = Mock()
-            mock_update.message.reply_text = AsyncMock()
-            mock_update.message.from_user.id = 123  # Set authorized user ID
-            mock_update.message.from_user.username = "testuser"
-            mock_context = Mock()
+                # Mock update and context
+                mock_update = Mock()
+                mock_update.message.reply_text = AsyncMock()
+                mock_update.message.from_user.id = 123
+                mock_update.message.from_user.username = "testuser"
+                mock_context = Mock()
 
-            await bot.clear_command(mock_update, mock_context)
+                await bot.clear_command(mock_update, mock_context)
 
-            # Verify response was sent
-            mock_update.message.reply_text.assert_called_once()
-            call_args = mock_update.message.reply_text.call_args[0][0]
-            assert "Conversation history cleared" in call_args
+                # Verify backend API was called
+                mock_client.return_value.__aenter__.return_value.post.assert_called_once()
 
-            # Verify history was cleared
-            history = bot._get_conversation_history(user_id)
-            assert len(history) == 0
+                # Verify success reply was sent
+                mock_update.message.reply_text.assert_called_once_with(
+                    "✅ Conversation history cleared! Starting fresh."
+                )
 
     @pytest.mark.asyncio
     async def test_set_model_command(self):

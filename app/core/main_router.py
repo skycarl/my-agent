@@ -20,7 +20,7 @@ from app.core.settings import config
 
 # Import the agents and Runner
 from agents import Runner
-from app.agents import orchestrator_agent
+from app.agents.orchestrator_agent import create_orchestrator_agent
 
 router = APIRouter()
 
@@ -91,33 +91,46 @@ def get_models():
 @router.post("/agent_response", status_code=200, dependencies=[Depends(verify_token)])
 async def create_agent_response(request: AgentRequest):
     """
-    Create a response using OpenAI Agents SDK with agent handoffs.
+    Process user message through agents and send response directly via Telegram.
 
-    This endpoint uses an Orchestrator agent that can delegate tasks to
-    specialized agents like the Gardener agent for garden-related queries.
+    This endpoint uses async processing - it adds the user message to conversation
+    history, processes it through agents, and sends the response directly to the
+    user via Telegram instead of returning it to the calling bot.
 
     Args:
         request: The request containing the user input
 
     Returns:
-        The agent response with metadata
+        Simple success confirmation
     """
     try:
-        # Prepare input for agents SDK
+        from app.core.conversation_manager import get_conversation_manager
+        from app.core.agent_response_handler import AgentResponseHandler
+
+        conversation_manager = get_conversation_manager()
+
+        # Extract user message from request
         if request.input is not None:
-            agent_input: str | list[dict[str, str]] = request.input
+            user_message = request.input
             logger.debug(f"Received single input request: {request.input}")
-        elif request.messages is not None:
-            # Convert messages to format expected by agents SDK
-            agent_input = [
-                {"role": msg.role, "content": msg.content} for msg in request.messages
-            ]
+        elif request.messages is not None and len(request.messages) > 0:
+            # Take the last message as the new user input
+            user_message = request.messages[-1].content
             logger.debug(
-                f"Received conversation history with {len(request.messages)} messages"
+                f"Received conversation with {len(request.messages)} messages, processing last message"
             )
         else:
-            # This should not happen due to our validation, but type checker needs it
             raise HTTPException(status_code=400, detail="No input or messages provided")
+
+        # Add user message to persistent conversation history
+        conversation_manager.add_message(
+            role="user", content=user_message, message_type="chat"
+        )
+
+        # Get conversation history from disk for agent processing
+        conversation_history = conversation_manager.get_conversation_history(
+            max_messages=config.max_conversation_history
+        )
 
         # Determine which model to use (default to gpt-4o-mini for agents)
         model = request.model or "gpt-4o-mini"
@@ -131,10 +144,9 @@ async def create_agent_response(request: AgentRequest):
                 detail=f"Invalid model '{model}'. Available models: {', '.join(config.valid_openai_models)}",
             )
 
-        # Update the orchestrator agent model if different from default
-        if model != orchestrator_agent.model:
-            logger.debug(f"Updating orchestrator agent model to {model}")
-            orchestrator_agent.model = model
+        # Create orchestrator agent with the requested model
+        logger.debug(f"Creating orchestrator agent with model '{model}'")
+        orchestrator_agent = create_orchestrator_agent(model)
 
         # Ensure OpenAI API key is available
         if not config.openai_api_key:
@@ -147,37 +159,100 @@ async def create_agent_response(request: AgentRequest):
         import os
 
         os.environ["OPENAI_API_KEY"] = config.openai_api_key
-        # Configure timeout and retry settings for better handling of quota/rate limit issues
         os.environ["OPENAI_TIMEOUT"] = str(config.openai_timeout)
         os.environ["OPENAI_MAX_RETRIES"] = str(config.openai_max_retries)
 
         # Run the agent workflow using the Orchestrator
         logger.debug("Running agent workflow with Orchestrator")
-        result = await Runner.run(orchestrator_agent, input=agent_input)
+        result = await Runner.run(orchestrator_agent, input=conversation_history)
 
         logger.debug("Agent workflow completed successfully")
         logger.debug(f"Response: {result.final_output}")
 
-        # Create the response
-        agent_response = AgentResponse(
-            response=result.final_output,
-            agent_name="Orchestrator",  # Default to orchestrator, actual agent might be determined by handoff
-            success=True,
+        # Process agent response through unified handler
+        (
+            should_respond,
+            response_message,
+        ) = await AgentResponseHandler.process_user_query_response(
+            response=result.final_output, user_id=config.authorized_user_id
         )
 
-        logger.debug("Successfully returning response from /agent_response endpoint")
-        return JSONResponse(content=jsonable_encoder(agent_response))
+        if should_respond and response_message.strip():
+            # Add agent response to conversation history
+            conversation_manager.add_message(
+                role="assistant", content=response_message, message_type="chat"
+            )
+
+            # Send response directly to user via Telegram
+            try:
+                from app.core.telegram_client import telegram_client
+
+                target_user_id = config.authorized_user_id
+                if target_user_id:
+                    success, message_id = await telegram_client.send_message(
+                        user_id=target_user_id,
+                        message=response_message,
+                        parse_mode="HTML",
+                    )
+
+                    if success:
+                        logger.info(
+                            "Successfully sent agent response to user via Telegram"
+                        )
+                    else:
+                        logger.warning(
+                            "Failed to send agent response to user via Telegram"
+                        )
+                else:
+                    logger.warning(
+                        "No authorized user ID configured for sending response"
+                    )
+
+            except Exception as e:
+                logger.error(f"Error sending agent response via Telegram: {e}")
+                # Don't fail the request if Telegram sending fails
+        else:
+            logger.info("Agent determined no response should be sent to user")
+
+        # Return simple success confirmation
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": "Message processed successfully",
+                "response_sent": should_respond,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error in /agent_response endpoint: {str(e)}")
 
+        # Send error message directly to user via Telegram
+        try:
+            from app.core.telegram_client import telegram_client
+
+            target_user_id = config.authorized_user_id
+            if target_user_id:
+                error_message = (
+                    f"Sorry, I encountered an error processing your request: {str(e)}"
+                )
+                await telegram_client.send_message(
+                    user_id=target_user_id,
+                    message=error_message,
+                    parse_mode="HTML",
+                )
+                logger.info("Sent error message to user via Telegram")
+
+        except Exception as telegram_error:
+            logger.error(f"Failed to send error message via Telegram: {telegram_error}")
+
         # Return error response
-        error_response = AgentResponse(
-            response=f"Sorry, I encountered an error processing your request: {str(e)}",
-            agent_name="Error",
-            success=False,
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "message": f"Failed to process message: {str(e)}",
+            },
         )
-        return JSONResponse(status_code=500, content=jsonable_encoder(error_response))
 
 
 @router.post("/process_alert", status_code=201, dependencies=[Depends(verify_token)])
@@ -235,6 +310,10 @@ async def process_alert(request: AlertRequest):
         os.environ["OPENAI_TIMEOUT"] = str(config.openai_timeout)
         os.environ["OPENAI_MAX_RETRIES"] = str(config.openai_max_retries)
 
+        # Create orchestrator agent with default model for alert processing
+        logger.debug("Creating orchestrator agent for alert processing")
+        orchestrator_agent = create_orchestrator_agent()
+
         # Process alert through orchestrator agent
         try:
             result = await Runner.run(orchestrator_agent, input=agent_input)
@@ -248,186 +327,61 @@ async def process_alert(request: AlertRequest):
                 "Orchestrator"  # Could be updated if we can detect handoffs
             )
 
-            # Try to parse agent response as JSON to check for notification decision
-            agent_response = result.final_output.strip()
-            notification_handled = False
+            # Process agent response through unified handler
+            from app.core.agent_response_handler import AgentResponseHandler
 
-            try:
-                # Parse the agent response as JSON
-                response_data = json.loads(agent_response)
+            alert_processing_result = await AgentResponseHandler.process_alert_response(
+                response=result.final_output, alert_id=request.uid
+            )
 
-                # Check for required keys
+            # Update agent metadata based on processing result
+            if alert_processing_result["notification_sent"]:
+                agent_metadata.actions_taken = ["alert_processed", "notification_sent"]
+                logger.info(
+                    f"Successfully processed alert {request.uid} and sent notification"
+                )
+            else:
+                # Check if notification was intentionally skipped or if there was an error
+                metadata = alert_processing_result["metadata"]
+                notification_decision = metadata.get("notification_decision")
+
                 if (
-                    "notify_user" in response_data
-                    and "message_content" in response_data
+                    notification_decision
+                    and notification_decision.get("notify_user") is False
                 ):
-                    notify_user = response_data.get("notify_user", False)
-                    message_content = response_data.get("message_content", "")
-
-                    if notify_user and message_content.strip():
-                        # Agent wants to send a notification
-                        try:
-                            # Import here to avoid circular imports
-                            from app.core.telegram_client import telegram_client
-
-                            # Send the notification
-                            target_user_id = config.authorized_user_id
-                            if target_user_id:
-                                (
-                                    success,
-                                    message_id,
-                                ) = await telegram_client.send_message(
-                                    user_id=target_user_id,
-                                    message=message_content,
-                                    parse_mode="HTML",
-                                )
-
-                                if success:
-                                    agent_metadata.actions_taken = [
-                                        "alert_processed",
-                                        "notification_sent",
-                                    ]
-                                    logger.info(
-                                        f"Successfully sent Telegram notification for alert {request.uid}"
-                                    )
-                                else:
-                                    agent_metadata.actions_taken = [
-                                        "alert_processed",
-                                        "notification_failed",
-                                    ]
-                                    logger.warning(
-                                        f"Failed to send Telegram notification for alert {request.uid}"
-                                    )
-                            else:
-                                agent_metadata.actions_taken = [
-                                    "alert_processed",
-                                    "notification_skipped_no_user",
-                                ]
-                                logger.warning(
-                                    "No authorized user ID configured for notifications"
-                                )
-
-                        except Exception as e:
-                            agent_metadata.actions_taken = [
-                                "alert_processed",
-                                "notification_error",
-                            ]
-                            logger.error(
-                                f"Error sending Telegram notification for alert {request.uid}: {e}"
-                            )
-                    else:
-                        # Agent decided not to notify
-                        agent_metadata.actions_taken = [
-                            "alert_processed",
-                            "notification_not_needed",
-                        ]
-                        logger.info(
-                            f"Agent determined no notification needed for alert {request.uid}: {message_content}"
-                        )
-
-                    notification_handled = True
-                else:
-                    # Missing required keys in JSON response
-                    logger.error(
-                        f"Agent response missing required keys (notify_user, message_content) for alert {request.uid}"
-                    )
                     agent_metadata.actions_taken = [
                         "alert_processed",
-                        "response_format_error",
+                        "notification_not_needed",
                     ]
-
-            except json.JSONDecodeError as e:
-                # Agent response is not valid JSON - send raw response to user for debugging
-                logger.error(
-                    f"Agent response is not valid JSON for alert {request.uid}: {e}"
-                )
-                agent_metadata.actions_taken = [
-                    "alert_processed",
-                    "response_parse_error",
-                ]
-
-                # Send raw agent response to user for debugging
-                try:
-                    # Import here to avoid circular imports
-                    from app.core.telegram_client import telegram_client
-
-                    # Send the raw response for debugging
-                    target_user_id = config.authorized_user_id
-                    if target_user_id:
-                        debug_message = f"⚠️ Agent returned malformed JSON for alert {request.uid}:\n\nRaw response:\n{agent_response}"
-                        success, message_id = await telegram_client.send_message(
-                            user_id=target_user_id,
-                            message=debug_message,
-                            parse_mode="HTML",
-                        )
-
-                        if success:
-                            logger.info(
-                                f"Sent debug message for malformed JSON alert {request.uid}"
-                            )
-                        else:
-                            logger.warning(
-                                f"Failed to send debug message for alert {request.uid}"
-                            )
-                    else:
-                        logger.warning(
-                            "No authorized user ID configured for debug notifications"
-                        )
-
-                except Exception as debug_e:
-                    logger.error(
-                        f"Error sending debug message for alert {request.uid}: {debug_e}"
+                    rationale = notification_decision.get("rationale", "")
+                    logger.info(
+                        f"Agent determined no notification needed for alert {request.uid}: {rationale}"
                     )
-            except Exception as e:
-                # Other parsing errors - send raw response to user for debugging
-                logger.error(
-                    f"Error processing agent response for alert {request.uid}: {e}"
-                )
-                agent_metadata.actions_taken = [
-                    "alert_processed",
-                    "response_processing_error",
-                ]
-
-                # Send raw agent response to user for debugging
-                try:
-                    # Import here to avoid circular imports
-                    from app.core.telegram_client import telegram_client
-
-                    # Send the raw response for debugging
-                    target_user_id = config.authorized_user_id
-                    if target_user_id:
-                        debug_message = f"⚠️ Agent response processing error for alert {request.uid}:\n\nError: {str(e)}\n\nRaw response:\n{agent_response}"
-                        success, message_id = await telegram_client.send_message(
-                            user_id=target_user_id,
-                            message=debug_message,
-                            parse_mode="HTML",
-                        )
-
-                        if success:
-                            logger.info(
-                                f"Sent debug message for processing error alert {request.uid}"
-                            )
-                        else:
-                            logger.warning(
-                                f"Failed to send debug message for alert {request.uid}"
-                            )
-                    else:
-                        logger.warning(
-                            "No authorized user ID configured for debug notifications"
-                        )
-
-                except Exception as debug_e:
+                elif metadata.get("error"):
+                    agent_metadata.actions_taken = [
+                        "alert_processed",
+                        "notification_error",
+                    ]
                     logger.error(
-                        f"Error sending debug message for alert {request.uid}: {debug_e}"
+                        f"Error processing alert {request.uid}: {metadata['error']}"
                     )
-
-            # If notification handling failed, default to basic processing
-            if not notification_handled:
-                if not agent_metadata.actions_taken:
-                    agent_metadata.actions_taken = ["alert_processed"]
-                logger.info(
-                    f"Alert {request.uid} processed but notification handling was skipped due to response format issues"
-                )
+                elif not metadata.get("has_json"):
+                    # Agent response had no JSON structure - likely a regular response
+                    agent_metadata.actions_taken = [
+                        "alert_processed",
+                        "no_json_structure",
+                    ]
+                    logger.info(
+                        f"Alert {request.uid} processed with regular response (no JSON structure)"
+                    )
+                else:
+                    agent_metadata.actions_taken = [
+                        "alert_processed",
+                        "notification_skipped",
+                    ]
+                    logger.info(
+                        f"Alert {request.uid} processed but no notification sent"
+                    )
 
             logger.info(f"Successfully processed alert {request.uid} through agents")
             logger.debug(f"Agent response: {result.final_output}")
@@ -516,6 +470,53 @@ async def process_alert(request: AlertRequest):
             agent_processing=agent_metadata,
         )
         return JSONResponse(status_code=500, content=jsonable_encoder(error_response))
+
+
+@router.post(
+    "/clear_conversation", status_code=200, dependencies=[Depends(verify_token)]
+)
+async def clear_conversation():
+    """
+    Clear conversation history for the authorized user.
+
+    This endpoint is called by the Telegram bot when the user uses the /clear command.
+
+    Returns:
+        Success confirmation
+    """
+    try:
+        from app.core.conversation_manager import get_conversation_manager
+
+        conversation_manager = get_conversation_manager()
+        success = conversation_manager.clear_conversation_history()
+
+        if success:
+            logger.info("Successfully cleared conversation history")
+            return JSONResponse(
+                content={
+                    "success": True,
+                    "message": "Conversation history cleared successfully",
+                }
+            )
+        else:
+            logger.warning("Failed to clear conversation history")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "message": "Failed to clear conversation history",
+                },
+            )
+
+    except Exception as e:
+        logger.error(f"Error in /clear_conversation endpoint: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "message": f"Failed to clear conversation history: {str(e)}",
+            },
+        )
 
 
 @router.post(

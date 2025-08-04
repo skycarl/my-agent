@@ -49,10 +49,26 @@ async def get_current_date() -> str:
         return f"Error getting current date: {str(e)}"
 
 
-# Create the Commute agent with MCP tools
-commute_agent = Agent(
-    name="Commute Assistant",
-    instructions="""You are the Commute Assistant - a specialized agent for handling transportation and commute-related tasks. You help the user with:
+def create_commute_agent(model: str = None) -> Agent:
+    """
+    Create a Commute Assistant agent with MCP tools.
+
+    Args:
+        model: The OpenAI model to use for this agent
+
+    Returns:
+        Configured Commute Assistant agent
+    """
+    # Use provided model or fall back to default
+    agent_model = (
+        model or config.valid_openai_models[0]
+        if config.valid_openai_models
+        else "gpt-4o-mini"
+    )
+
+    commute = Agent(
+        name="Commute Assistant",
+        instructions="""You are the Commute Assistant - a specialized agent for handling transportation and commute-related tasks. You help the user with:
     
     1. Seattle Monorail operating hours and schedules
     2. Processing transportation alerts and determining if they are relevant to the user
@@ -65,12 +81,14 @@ commute_agent = Agent(
      1) The user asking you a question about commuting or transportation by sending you a message. These will be in natural language.
      2) An automated alert from a transportation authority or service provider to process in the format: "Process this alert: {JSON data}"
      
-    You must respond with a JSON object containing exactly these three keys:
+    You must respond with a JSON object wrapped in XML tags containing exactly these three keys:
+    <json>
     {
       "notify_user": boolean,
       "message_content": "string",
       "rationale": "string"
     }
+    </json>
      
     When processing user queries:
     - Be helpful and provide clear, actionable transportation information.
@@ -97,18 +115,22 @@ commute_agent = Agent(
     Examples:
     
     For relevant alerts:
+    <json>
     {
         "notify_user": true,
         "message_content": "Track blockage affecting 2 Line trains. Trains running every 20-25 minutes until further notice. Expect longer wait times.",
         "rationale": "This alert is about a track blockage, which affects commuting schedules."
     }
+    </json>
     
     For non-relevant alerts:
+    <json>
     {
         "notify_user": false,
         "message_content": "",
         "rationale": "This alert is about elevator maintenance, which doesn't affect commuting schedules."
     }
+    </json>
     
     General guidelines:
     - Always use "rationale": "string" to explain why you are notifying the user, or are not notifying the user.
@@ -117,10 +139,11 @@ commute_agent = Agent(
     - Include relevant details like affected routes, estimated delays, and alternative options
     - Only use information available in the alert body or from your tools; do not make up information.
     """,
-    tools=[get_monorail_hours, get_current_date],
-    model=config.valid_openai_models[0]
-    if config.valid_openai_models
-    else "gpt-4o-mini",
-)
+        tools=[get_monorail_hours, get_current_date],
+        model=agent_model,
+    )
 
-logger.debug("Commute agent created with MCP tools integration")
+    logger.debug(
+        f"Commute agent created with model '{agent_model}' and MCP tools integration"
+    )
+    return commute

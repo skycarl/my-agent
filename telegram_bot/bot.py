@@ -2,7 +2,7 @@
 Telegram bot implementation using python-telegram-bot library.
 """
 
-from typing import List
+# Removed List import - no longer using message list types
 
 import httpx
 from loguru import logger
@@ -34,18 +34,7 @@ class TelegramMessage(BaseModel):
     username: str | None = None
 
 
-class APIMessage(BaseModel):
-    """Message format for API calls."""
-
-    role: str
-    content: str
-
-
-class APIRequest(BaseModel):
-    """Request format for the agent_response API."""
-
-    messages: List[APIMessage]
-    model: str | None = None  # Optional model override
+# API classes removed - using simple dict format for fire-and-forget calls
 
 
 class TelegramBot:
@@ -60,8 +49,7 @@ class TelegramBot:
         self.selected_model: str = "gpt-4o"
         self.application: Application | None = None
 
-        # Conversation history storage: user_id -> List[APIMessage]
-        self.conversation_history: dict[int, List[APIMessage]] = {}
+        # Note: Conversation history is now managed by the backend in persistent storage
 
         if not self.token:
             logger.error("TELEGRAM_BOT_TOKEN is not set in environment variables")
@@ -159,39 +147,7 @@ class TelegramBot:
         # Send notification to admin
         await self._notify_admin_unauthorized_access(update, action)
 
-    def _add_message_to_history(self, user_id: int, role: str, content: str) -> None:
-        """Add a message to the conversation history for a user."""
-        if user_id not in self.conversation_history:
-            self.conversation_history[user_id] = []
-
-        message = APIMessage(role=role, content=content)
-        self.conversation_history[user_id].append(message)
-
-        # Truncate history if it exceeds the maximum
-        self._truncate_conversation_history(user_id)
-
-    def _get_conversation_history(self, user_id: int) -> List[APIMessage]:
-        """Get the conversation history for a user."""
-        return self.conversation_history.get(user_id, [])
-
-    def _clear_conversation_history(self, user_id: int) -> None:
-        """Clear the conversation history for a user."""
-        if user_id in self.conversation_history:
-            del self.conversation_history[user_id]
-            logger.info(f"Cleared conversation history for user {user_id}")
-
-    def _truncate_conversation_history(self, user_id: int) -> None:
-        """Truncate conversation history to keep only the most recent messages."""
-        if user_id in self.conversation_history:
-            history = self.conversation_history[user_id]
-            if len(history) > self.max_conversation_history:
-                # Keep only the most recent messages
-                self.conversation_history[user_id] = history[
-                    -self.max_conversation_history :
-                ]
-                logger.debug(
-                    f"Truncated conversation history for user {user_id} to {self.max_conversation_history} messages"
-                )
+    # Conversation history methods removed - now managed by backend
 
     async def start_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -264,12 +220,36 @@ Just send me any message and I'll respond using AI!
             f"Authorized user {user_id} ({username}) requested conversation clear"
         )
 
-        # Clear the conversation history
-        self._clear_conversation_history(user_id)
+        # Clear the conversation history via backend API
+        try:
+            headers = {"Content-Type": "application/json", "X-Token": self.x_token}
 
-        await update.message.reply_text(
-            "✅ Conversation history cleared! Starting fresh."
-        )
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.app_url}/clear_conversation",
+                    headers=headers,
+                    timeout=10.0,
+                )
+
+                if response.status_code == 200:
+                    await update.message.reply_text(
+                        "✅ Conversation history cleared! Starting fresh."
+                    )
+                    logger.info(
+                        f"Successfully cleared conversation history for user {user_id}"
+                    )
+                else:
+                    logger.warning(
+                        f"Failed to clear conversation history: {response.status_code}"
+                    )
+                    await update.message.reply_text(
+                        "❌ Failed to clear conversation history. Please try again."
+                    )
+        except Exception as e:
+            logger.error(f"Error clearing conversation history: {e}")
+            await update.message.reply_text(
+                "❌ Failed to clear conversation history. Please try again."
+            )
 
     async def handle_message(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -300,32 +280,16 @@ Just send me any message and I'll respond using AI!
                 f"Processing message from authorized user {message_data.user_id} ({message_data.username}): {message_data.text}"
             )
 
-            # Add user message to conversation history
-            self._add_message_to_history(
-                message_data.user_id, "user", message_data.text
-            )
-
-            # Get conversation history
-            conversation_history = self._get_conversation_history(message_data.user_id)
-
-            # Send typing action
+            # Send typing action for a few seconds to show bot is processing
             await context.bot.send_chat_action(
                 chat_id=message_data.chat_id, action="typing"
             )
 
-            # Call the API with conversation history
-            response_text = await self.get_ai_response(conversation_history)
-
-            # Add assistant response to conversation history
-            self._add_message_to_history(
-                message_data.user_id, "assistant", response_text
-            )
-
-            # Send response back to user
-            await update.message.reply_text(response_text)
+            # Make fire-and-forget API call to backend (async processing)
+            await self.send_message_to_backend(message_data.text)
 
             logger.debug(
-                f"Response sent to authorized user {message_data.user_id}: {response_text}"
+                f"Sent message to backend for async processing: {message_data.text}"
             )
 
         except ValidationError as e:
@@ -339,73 +303,44 @@ Just send me any message and I'll respond using AI!
                 "Sorry, something went wrong. Please try again."
             )
 
-    async def get_ai_response(self, conversation_history: List[APIMessage]) -> str:
-        """Call the FastAPI responses endpoint to get AI response."""
+    async def send_message_to_backend(self, message: str) -> None:
+        """Send message to backend for async processing (fire-and-forget)."""
         try:
-            # Prepare the request with conversation history
-            api_request = APIRequest(
-                messages=conversation_history, model=self.selected_model
-            )
+            # Prepare the request with single input message
+            api_request = {"input": message, "model": self.selected_model}
 
             headers = {"Content-Type": "application/json", "X-Token": self.x_token}
 
             logger.debug(
-                f"Making API call to {self.app_url}/agent_response with {len(conversation_history)} messages"
+                f"Making fire-and-forget API call to {self.app_url}/agent_response"
             )
 
-            # Make the API call
+            # Make the API call without waiting for response processing
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{self.app_url}/agent_response",
-                    json=api_request.model_dump(),
+                    json=api_request,
                     headers=headers,
-                    timeout=30.0,
+                    timeout=5.0,  # Short timeout since we're not waiting for AI processing
                 )
 
                 if response.status_code == 200:
                     response_data = response.json()
-                    logger.debug(f"API response received: {response_data}")
-
-                    # Extract the content from Agent response
-                    if "response" in response_data:
-                        agent_response = response_data["response"]
-                        if agent_response and isinstance(agent_response, str):
-                            ai_response = str(agent_response)
-                            logger.debug(f"AI response extracted: {ai_response}")
-                            return ai_response
-                        else:
-                            logger.warning("Empty response received from agent")
-                            return "I processed your request but didn't generate a text response. Please try rephrasing your question."
-                    else:
-                        logger.info("API response missing expected 'response' field")
-                        return "I couldn't generate a response. Please try again."
+                    logger.debug(
+                        f"Backend accepted message for processing: {response_data}"
+                    )
                 else:
-                    logger.info(
-                        f"API call failed with status {response.status_code}: {response.text}"
+                    logger.warning(
+                        f"Backend failed to accept message: {response.status_code} - {response.text}"
                     )
 
-                    # Try to extract specific error message from API response
-                    try:
-                        error_data = response.json()
-                        if (
-                            "response" in error_data
-                            and error_data["response"]
-                            and isinstance(error_data["response"], str)
-                        ):
-                            # Return the specific error message from the API
-                            return str(error_data["response"])
-                    except Exception:
-                        # If we can't parse JSON or extract the error message, continue to generic message
-                        pass
-
-                    return "Sorry, I'm having trouble connecting to my AI service. Please try again later."
-
         except httpx.TimeoutException:
-            logger.info("API call timed out")
-            return "Sorry, the request timed out. Please try again."
+            logger.warning(
+                "Backend API call timed out - message may still be processing"
+            )
         except Exception as e:
-            logger.info(f"Error calling API: {e}")
-            return "Sorry, there was an error processing your request."
+            logger.error(f"Error sending message to backend: {e}")
+            # Note: We don't re-raise here since this is fire-and-forget
 
     async def set_model_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
