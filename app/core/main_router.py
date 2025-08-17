@@ -1,28 +1,35 @@
 import json
+import os
 from pathlib import Path
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Depends
+
+from agents import Runner
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import BaseModel
+
+from app.agents.orchestrator_agent import create_orchestrator_agent
+from app.core.agent_response_handler import AgentResponseHandler
 from app.core.auth import verify_token
+from app.core.conversation_manager import get_conversation_manager
+from app.core.scheduler import scheduler_service
+from app.core.settings import config
+from app.core.task_store import append_task_to_config
+from app.core.telegram_client import telegram_client
+from app.core.timezone_utils import now_local
 from app.models.tasks import (
-    TelegramMessageRequest,
-    TelegramMessageResponse,
+    AgentProcessingMetadata,
     AlertRequest,
     AlertResponse,
-    AgentProcessingMetadata,
+    TelegramMessageRequest,
+    TelegramMessageResponse,
 )
-from app.core.scheduler import scheduler_service
 
-from app.core.settings import config
-from app.core.timezone_utils import now_local
-from app.core.task_store import append_task_to_config
-
-# Import the agents and Runner
-from agents import Runner
-from app.agents.orchestrator_agent import create_orchestrator_agent
+os.environ["OPENAI_API_KEY"] = config.openai_api_key
+os.environ["OPENAI_TIMEOUT"] = str(config.openai_timeout)
+os.environ["OPENAI_MAX_RETRIES"] = str(config.openai_max_retries)
 
 router = APIRouter()
 
@@ -163,8 +170,6 @@ async def create_agent_response(request: AgentRequest):
         Simple success confirmation
     """
     try:
-        from app.core.conversation_manager import get_conversation_manager
-        from app.core.agent_response_handler import AgentResponseHandler
 
         conversation_manager = get_conversation_manager()
 
@@ -212,14 +217,7 @@ async def create_agent_response(request: AgentRequest):
             raise HTTPException(
                 status_code=500,
                 detail="OpenAI API key is not configured. Please set the OPENAI_API_KEY environment variable.",
-            )
-
-        # Set the OpenAI configuration in environment for the Agents SDK
-        import os
-
-        os.environ["OPENAI_API_KEY"] = config.openai_api_key
-        os.environ["OPENAI_TIMEOUT"] = str(config.openai_timeout)
-        os.environ["OPENAI_MAX_RETRIES"] = str(config.openai_max_retries)
+            )        
 
         # Run the agent workflow using the Orchestrator
         logger.debug("Running agent workflow with Orchestrator")
@@ -247,8 +245,6 @@ async def create_agent_response(request: AgentRequest):
 
             # Send response directly to user via Telegram
             try:
-                from app.core.telegram_client import telegram_client
-
                 target_user_id = config.authorized_user_id
                 if target_user_id:
                     success, message_id = await telegram_client.send_message(
@@ -294,7 +290,6 @@ async def create_agent_response(request: AgentRequest):
 
         # Send error message directly to user via Telegram
         try:
-            from app.core.telegram_client import telegram_client
 
             target_user_id = config.authorized_user_id
             if target_user_id:
@@ -369,13 +364,6 @@ async def process_alert(request: AlertRequest):
                 detail="OpenAI API key is not configured. Please set the OPENAI_API_KEY environment variable.",
             )
 
-        # Set the OpenAI configuration in environment for the Agents SDK
-        import os
-
-        os.environ["OPENAI_API_KEY"] = config.openai_api_key
-        os.environ["OPENAI_TIMEOUT"] = str(config.openai_timeout)
-        os.environ["OPENAI_MAX_RETRIES"] = str(config.openai_max_retries)
-
         # Create orchestrator agent with default model for alert processing
         logger.debug("Creating orchestrator agent for alert processing")
         orchestrator_agent = create_orchestrator_agent()
@@ -391,10 +379,7 @@ async def process_alert(request: AlertRequest):
             agent_metadata.processing_time_ms = int(processing_time)
             agent_metadata.primary_agent = (
                 "Orchestrator"  # Could be updated if we can detect handoffs
-            )
-
-            # Process agent response through unified handler
-            from app.core.agent_response_handler import AgentResponseHandler
+            )            
 
             alert_processing_result = await AgentResponseHandler.process_alert_response(
                 response=result.final_output, alert_id=request.uid
@@ -551,8 +536,6 @@ async def clear_conversation():
         Success confirmation
     """
     try:
-        from app.core.conversation_manager import get_conversation_manager
-
         conversation_manager = get_conversation_manager()
         success = conversation_manager.clear_conversation_history()
 
@@ -602,9 +585,6 @@ async def send_telegram_message(request: TelegramMessageRequest):
         Success confirmation with message details
     """
     try:
-        # Import here to avoid circular imports
-        from app.core.telegram_client import telegram_client
-
         # Determine target user ID
         target_user_id = request.user_id or config.authorized_user_id
 
