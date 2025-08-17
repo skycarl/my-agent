@@ -123,6 +123,16 @@ class Config(BaseSettings):
         default=30, description="Interval in seconds to check for task config changes"
     )
 
+    # One-time (date) task behavior
+    one_time_task_cleanup_mode: str = Field(
+        default="remove",
+        description="Cleanup strategy after a one-time task runs: 'remove' or 'disable'",
+    )
+    one_time_task_misfire_grace_seconds: int = Field(
+        default=3600,
+        description="If a one-time task was missed while the service was down, run it on next start if within this many seconds.",
+    )
+
     @property
     def tasks_config_path(self) -> str:
         """Get the tasks configuration file path based on storage path."""

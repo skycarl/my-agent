@@ -80,3 +80,50 @@ def get_scheduler_timezone():
         pytz timezone object for the configured scheduler timezone
     """
     return pytz.timezone(config.scheduler_timezone)
+
+
+def parse_datetime_in_app_tz(dt_str_or_obj) -> datetime:
+    """
+    Parse a datetime input (string or datetime) and return a timezone-aware datetime
+    in the application's default timezone (config.timezone) if naive.
+
+    - If input is a string, attempt to parse ISO-8601 first via datetime.fromisoformat.
+      If parsing fails, raise a helpful ValueError.
+    - If the parsed/received datetime is naive, assume app timezone (config.timezone).
+    - If it has a timezone, return as-is.
+    """
+    try:
+        if isinstance(dt_str_or_obj, datetime):
+            candidate = dt_str_or_obj
+        else:
+            # Attempt ISO-8601 parse (supports YYYY-MM-DDTHH:MM:SS[.ffffff][+/-HH:MM])
+            candidate = datetime.fromisoformat(str(dt_str_or_obj))
+    except Exception as e:
+        raise ValueError(
+            f"Failed to parse datetime input '{dt_str_or_obj}'. Provide ISO-8601 like '2025-09-01T09:00:00-07:00' or '2025-09-01T09:00:00'. Error: {e}"
+        )
+
+    if candidate.tzinfo is None:
+        # Localize to app timezone
+        return get_local_timezone().localize(candidate)
+    return candidate
+
+
+def parse_datetime_in_scheduler_tz(dt_str_or_obj) -> datetime:
+    """
+    Parse a datetime input (string or datetime) and return a timezone-aware datetime
+    in the scheduler's timezone if naive.
+
+    This is used for scheduling one-time (date) tasks where the scheduler timezone
+    determines the interpretation of naive times.
+    """
+    dt = parse_datetime_in_app_tz(dt_str_or_obj)
+    # Convert to scheduler timezone if needed
+    return dt.astimezone(get_scheduler_timezone())
+
+
+def ensure_timezone(dt: datetime) -> datetime:
+    """Ensure datetime is timezone-aware in the app's timezone if naive."""
+    if dt.tzinfo is None:
+        return get_local_timezone().localize(dt)
+    return dt

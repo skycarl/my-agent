@@ -9,12 +9,17 @@ from typing import Dict, List, Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.date import DateTrigger
 from loguru import logger
 
 from app.core.settings import config
 from app.core.task_manager import task_manager
 from app.models.tasks import TaskConfig, TasksConfiguration
-from app.core.timezone_utils import now_local_isoformat
+from app.core.timezone_utils import (
+    now_local_isoformat,
+    get_scheduler_timezone,
+    ensure_timezone,
+)
 
 
 class SchedulerService:
@@ -159,6 +164,22 @@ class SchedulerService:
                     timezone=config.scheduler_timezone,
                 )
 
+            elif task.schedule.type == "date":
+                # One-time date-based task
+                if not task.schedule.run_at:
+                    logger.error(
+                        f"Task {task.id}: run_at is required for date schedule"
+                    )
+                    return False
+
+                run_at = ensure_timezone(task.schedule.run_at)
+                # Convert to scheduler timezone to avoid surprises
+                run_at = run_at.astimezone(get_scheduler_timezone())
+
+                trigger = DateTrigger(
+                    run_date=run_at, timezone=config.scheduler_timezone
+                )
+
             else:
                 logger.error(  # type: ignore[unreachable]
                     f"Task {task.id}: Unknown schedule type: {task.schedule.type}"
@@ -173,7 +194,11 @@ class SchedulerService:
                 id=task.id,
                 name=task.name,
                 max_instances=1,  # Prevent overlapping executions
-                misfire_grace_time=60,  # Allow 60 seconds grace time for missed executions
+                misfire_grace_time=(
+                    config.one_time_task_misfire_grace_seconds
+                    if task.schedule.type == "date"
+                    else 60
+                ),
                 coalesce=True,  # Coalesce missed executions
             )
 
@@ -204,6 +229,51 @@ class SchedulerService:
 
         except Exception as e:
             logger.error(f"Unexpected error executing task '{task.name}': {e}")
+        finally:
+            # For one-time tasks, perform cleanup after execution attempt
+            try:
+                if task.schedule.type == "date":
+                    self._cleanup_one_time_task(task.id)
+            except Exception as cleanup_err:
+                logger.error(
+                    f"Failed to cleanup one-time task {task.id}: {cleanup_err}"
+                )
+
+    def _cleanup_one_time_task(self, task_id: str) -> None:
+        """Cleanup a one-time task from the config file after it runs."""
+        config_file = self._get_config_file_path()
+        if not config_file.exists():
+            return
+
+        try:
+            with open(config_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            original_count = len(data.get("tasks", []))
+            if config.one_time_task_cleanup_mode == "remove":
+                data["tasks"] = [
+                    t for t in data.get("tasks", []) if t.get("id") != task_id
+                ]
+            else:
+                for t in data.get("tasks", []):
+                    if t.get("id") == task_id:
+                        t["enabled"] = False
+
+            # Update last_modified
+            data["last_modified"] = now_local_isoformat()
+
+            with open(config_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            # Reload scheduler to reflect changes
+            if (
+                original_count != len(data.get("tasks", []))
+                or config.one_time_task_cleanup_mode != "remove"
+            ):
+                self.reload_configuration()
+
+        except Exception as e:
+            logger.error(f"Error cleaning up one-time task {task_id}: {e}")
 
     def reload_configuration(self) -> bool:
         """Reload task configuration and reschedule tasks."""

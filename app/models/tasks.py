@@ -10,8 +10,11 @@ from pydantic import BaseModel, Field
 class TaskSchedule(BaseModel):
     """Task schedule configuration."""
 
-    type: Literal["cron", "interval"] = Field(
-        description="Schedule type: 'cron' for cron expressions, 'interval' for simple intervals"
+    type: Literal["cron", "interval", "date"] = Field(
+        description=(
+            "Schedule type: 'cron' for cron expressions, 'interval' for simple intervals, "
+            "'date' for a one-time run at a specific datetime"
+        )
     )
     expression: Optional[str] = Field(
         default=None, description="Cron expression (e.g., '0 7 * * *' for daily at 7am)"
@@ -19,19 +22,47 @@ class TaskSchedule(BaseModel):
     interval_seconds: Optional[int] = Field(
         default=None, description="Interval in seconds for interval-based schedules"
     )
+    run_at: Optional[datetime] = Field(
+        default=None,
+        description=(
+            "Datetime at which a one-time task should run. If timezone-naive, it will be interpreted "
+            "in the configured scheduler timezone. Only valid when type='date'"
+        ),
+    )
 
     def model_post_init(self, __context) -> None:
         """Validate that the correct fields are provided based on schedule type."""
-        if self.type == "cron" and not self.expression:
-            raise ValueError("Cron expression is required for cron schedule type")
-        if self.type == "interval" and not self.interval_seconds:
-            raise ValueError("Interval seconds is required for interval schedule type")
-        if self.type == "cron" and self.interval_seconds:
-            raise ValueError("Cannot specify interval_seconds for cron schedule type")
-        if self.type == "interval" and self.expression:
-            raise ValueError(
-                "Cannot specify cron expression for interval schedule type"
-            )
+        if self.type == "cron":
+            if not self.expression:
+                raise ValueError("Cron expression is required for cron schedule type")
+            if self.interval_seconds is not None:
+                raise ValueError(
+                    "Cannot specify interval_seconds for cron schedule type"
+                )
+            if self.run_at is not None:
+                raise ValueError("Cannot specify run_at for cron schedule type")
+        elif self.type == "interval":
+            if not self.interval_seconds:
+                raise ValueError(
+                    "Interval seconds is required for interval schedule type"
+                )
+            if self.expression is not None:
+                raise ValueError(
+                    "Cannot specify cron expression for interval schedule type"
+                )
+            if self.run_at is not None:
+                raise ValueError("Cannot specify run_at for interval schedule type")
+        elif self.type == "date":
+            if self.run_at is None:
+                raise ValueError("run_at is required for date schedule type")
+            if self.expression is not None:
+                raise ValueError(
+                    "Cannot specify cron expression for date schedule type"
+                )
+            if self.interval_seconds is not None:
+                raise ValueError(
+                    "Cannot specify interval_seconds for date schedule type"
+                )
 
 
 class APICallConfig(BaseModel):

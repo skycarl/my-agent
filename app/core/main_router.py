@@ -14,9 +14,11 @@ from app.models.tasks import (
     AlertResponse,
     AgentProcessingMetadata,
 )
+from app.core.scheduler import scheduler_service
 
 from app.core.settings import config
 from app.core.timezone_utils import now_local
+from app.core.task_store import append_task_to_config
 
 # Import the agents and Runner
 from agents import Runner
@@ -88,6 +90,63 @@ def get_models():
     return ModelsResponse(
         models=config.valid_openai_models, default_model=config.default_model
     )
+
+
+# -----------------------
+# Tasks Management (Add)
+# -----------------------
+
+
+class NewTaskRequest(BaseModel):
+    """Flexible request to add a scheduled task (cron, interval, or date)."""
+
+    id: Optional[str] = None
+    name: str
+    type: str
+    enabled: bool = True
+    description: Optional[str] = None
+    schedule: dict
+    api_call: Optional[dict] = None
+    telegram: Optional[dict] = None
+    custom_function: Optional[dict] = None
+    max_retries: Optional[int] = None
+    retry_delay: Optional[int] = None
+
+
+class NewTaskResponse(BaseModel):
+    success: bool
+    message: str
+    task_id: str
+
+
+@router.post(
+    "/tasks",
+    status_code=201,
+    dependencies=[Depends(verify_token)],
+    response_model=NewTaskResponse,
+)
+async def add_task(request: NewTaskRequest):
+    """
+    Add a new scheduled task (supports cron, interval, and one-time date schedules).
+
+    Automatically triggers a scheduler reload after writing to storage.
+    """
+    try:
+        # Convert request to dict, filter out None values
+        task_data = {k: v for k, v in request.model_dump().items() if v is not None}
+
+        # Append to config and reload
+        task_id = append_task_to_config(task_data)
+        scheduler_service.reload_configuration()
+
+        return NewTaskResponse(
+            success=True, message="Task added and scheduler reloaded", task_id=task_id
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding new task: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to add task: {e}")
 
 
 @router.post("/agent_response", status_code=200, dependencies=[Depends(verify_token)])

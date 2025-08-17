@@ -3,6 +3,8 @@ Task manager for executing scheduled tasks and handling results.
 """
 
 import json
+import asyncio
+from datetime import timedelta
 import uuid
 import httpx
 from pathlib import Path
@@ -85,18 +87,39 @@ class TaskManager:
         )
 
         try:
-            # Execute based on task type
-            if task.type == "api_call_only":
-                success, response_data = await self._execute_api_call(task)
-                result.success = success
-                result.result_data = response_data
+            # Simple retry mechanism around the primary action
+            max_retries = max(0, task.max_retries)
+            retry_delay = max(0, task.retry_delay)
+            attempt = 0
+            success = False
+            response_data: Dict[str, Any] = {}
 
-            elif task.type == "api_call_with_telegram":
-                success, response_data = await self._execute_api_call(task)
-                result.result_data = response_data
+            async def run_primary_action() -> tuple[bool, Dict[str, Any]]:
+                if task.type in ("api_call_only", "api_call_with_telegram"):
+                    return await self._execute_api_call(task)
+                elif task.type == "custom_function":
+                    return await self._execute_custom_function(task)
+                else:
+                    raise ValueError(f"Unknown task type: {task.type}")
 
+            while True:
+                success, response_data = await run_primary_action()
+                if success or attempt >= max_retries:
+                    break
+                attempt += 1
+                result.retry_count = attempt
+                result.next_retry_at = now_local() + timedelta(seconds=retry_delay)
+                logger.warning(
+                    f"Task '{task.id}' attempt {attempt} failed. Retrying in {retry_delay}s..."
+                )
+                await asyncio.sleep(retry_delay)
+
+            # Prepare result data
+            result.result_data = response_data
+
+            if task.type == "api_call_with_telegram":
+                # If primary action succeeded, optionally send telegram
                 if success and task.telegram:
-                    # Send result to Telegram
                     telegram_success = await self._send_telegram_message(
                         task, response_data
                     )
@@ -110,14 +133,8 @@ class TaskManager:
                         )
                 else:
                     result.success = success
-
-            elif task.type == "custom_function":
-                success, response_data = await self._execute_custom_function(task)
-                result.success = success
-                result.result_data = response_data
-
             else:
-                raise ValueError(f"Unknown task type: {task.type}")
+                result.success = success
 
             result.completed_at = now_local()
 
@@ -273,8 +290,25 @@ class TaskManager:
             return False
 
         try:
+            # If the API endpoint already sent the Telegram message (e.g. /agent_response),
+            # avoid sending a duplicate here.
+            if isinstance(response_data.get("response"), dict):
+                inner_response = response_data["response"]
+                if inner_response.get("response_sent") is True:
+                    logger.info(
+                        "API endpoint already delivered the message via Telegram; skipping duplicate send"
+                    )
+                    return True
+
             # Extract the message from the API response
             message_text = self._format_telegram_message(task, response_data)
+
+            # If formatting produced an empty message (e.g. endpoint already sent it), skip
+            if not message_text or not message_text.strip():
+                logger.debug(
+                    "No Telegram message content after formatting; skipping send"
+                )
+                return True
 
             # Add prefix if configured
             if task.telegram.message_prefix:
@@ -358,9 +392,18 @@ class TaskManager:
             if "response" in response_data and isinstance(
                 response_data["response"], dict
             ):
-                api_response = response_data["response"]["response"]
-                if api_response:
-                    return str(api_response)
+                inner = response_data["response"]
+                # If the endpoint already sent the message, return empty string so caller can skip
+                if inner.get("response_sent") is True:
+                    return ""
+                # If the endpoint returned the actual text under 'response', use it
+                if "response" in inner and inner["response"]:
+                    return str(inner["response"])
+                # Otherwise, if a human-readable message exists, use it
+                if "message" in inner and inner["message"]:
+                    return str(inner["message"])
+                # Fallback to JSON dump of the inner payload
+                return json.dumps(inner, indent=2)
             elif "response" in response_data:
                 return str(response_data["response"])
             elif "message" in response_data:
