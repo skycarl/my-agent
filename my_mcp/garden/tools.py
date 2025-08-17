@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from fastmcp import FastMCP
 
 
-from .models import GardenDB
+from .models import GardenDB, Plant
 from app.core.settings import config
 
 
@@ -121,20 +121,14 @@ def register_garden_tools(server: FastMCP):
     """Register all garden tools with the FastMCP server."""
 
     @server.tool
-    def get_plants() -> Dict[str, List[PlantResponse]]:
+    def get_plants() -> Dict[str, Dict[str, Plant]]:
         """Get all plants in the garden database.
 
         Returns:
-            List of all plants with their names and total yields.
+            Complete garden database with all plants and their harvest data.
         """
         try:
-            plants = []
-            for plant_name, plant in garden_db.plants.items():
-                plants.append(
-                    PlantResponse(name=plant.name, total_yield=plant.total_yield)
-                )
-
-            return {"plants": plants}
+            return {"plants": garden_db.plants}
         except Exception as e:
             raise RuntimeError(f"Failed to get plants: {str(e)}")
 
