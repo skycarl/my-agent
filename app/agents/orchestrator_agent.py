@@ -23,11 +23,7 @@ def create_orchestrator_agent(model: str = None) -> Agent:
         Configured Orchestrator agent
     """
     # Use provided model or fall back to default
-    agent_model = (
-        model or config.valid_openai_models[0]
-        if config.valid_openai_models
-        else "gpt-4o-mini"
-    )
+    agent_model = model or config.default_model
 
     # Create specialized agents with the same model
     gardener_agent = create_gardener_agent(agent_model)

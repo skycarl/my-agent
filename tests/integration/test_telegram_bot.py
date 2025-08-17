@@ -232,13 +232,14 @@ class TestTelegramBot:
             mock_config.x_token = "test_x_token"
             mock_config.max_conversation_history = 10
             mock_config.authorized_user_id = 123
+            mock_config.default_model = "gpt-5"
 
             # Mock API response for available models
             mock_response = Mock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
-                "models": ["gpt-4o", "gpt-4o-mini"],
-                "default_model": "gpt-4o",
+                "models": ["gpt-4o", "gpt-5"],
+                "default_model": "gpt-5",
             }
 
             with patch("httpx.AsyncClient") as mock_client:
@@ -261,7 +262,7 @@ class TestTelegramBot:
                 await bot.set_model_command(mock_update, mock_context)
 
                 # Should not change the model directly, just show interface
-                assert bot.selected_model == "gpt-4o"  # Default unchanged
+                assert bot.selected_model == "gpt-5"  # Default unchanged
                 mock_update.message.reply_text.assert_called_once()
                 call_args = mock_update.message.reply_text.call_args[0][0]
                 assert "Current model" in call_args
@@ -276,6 +277,7 @@ class TestTelegramBot:
             mock_config.x_token = "test_x_token"
             mock_config.max_conversation_history = 10
             mock_config.authorized_user_id = 123
+            mock_config.default_model = "gpt-5"
 
             bot = TelegramBot()
 
@@ -301,7 +303,7 @@ class TestTelegramBot:
                 await bot.set_model_command(mock_update, mock_context)
 
                 # Should not change the model
-                assert bot.selected_model == "gpt-4o"  # Default
+                assert bot.selected_model == "gpt-5"  # Default
                 mock_update.message.reply_text.assert_called_once()
                 call_args = mock_update.message.reply_text.call_args[0][0]
                 assert "Failed to fetch available models" in call_args
@@ -322,8 +324,8 @@ class TestTelegramBot:
             mock_response = Mock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
-                "models": ["gpt-4o", "gpt-4o-mini"],
-                "default_model": "gpt-4o",
+                "models": ["gpt-4o", "gpt-5"],
+                "default_model": "gpt-5",
             }
 
             with patch("httpx.AsyncClient") as mock_client:
@@ -332,7 +334,7 @@ class TestTelegramBot:
                 )
 
                 models = await bot._get_available_models()
-                assert models == ["gpt-4o", "gpt-4o-mini"]
+                assert models == ["gpt-4o", "gpt-5"]
 
     @pytest.mark.asyncio
     async def test_get_available_models_failure(self):

@@ -126,11 +126,7 @@ def create_gardener_agent(model: str = None) -> Agent:
         Configured Gardener agent
     """
     # Use provided model or fall back to default
-    agent_model = (
-        model or config.valid_openai_models[0]
-        if config.valid_openai_models
-        else "gpt-4o-mini"
-    )
+    agent_model = model or config.default_model
 
     gardener = Agent(
         name="Gardener",

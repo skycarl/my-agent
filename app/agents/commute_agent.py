@@ -60,11 +60,7 @@ def create_commute_agent(model: str = None) -> Agent:
         Configured Commute Assistant agent
     """
     # Use provided model or fall back to default
-    agent_model = (
-        model or config.valid_openai_models[0]
-        if config.valid_openai_models
-        else "gpt-4o-mini"
-    )
+    agent_model = model or config.default_model
 
     commute = Agent(
         name="Commute Assistant",
@@ -84,9 +80,9 @@ def create_commute_agent(model: str = None) -> Agent:
     You must respond with a JSON object wrapped in XML tags containing exactly these three keys:
     <json>
     {
+      "rationale": "string",
       "notify_user": boolean,
-      "message_content": "string",
-      "rationale": "string"
+      "message_content": "string"
     }
     </json>
      
@@ -117,18 +113,18 @@ def create_commute_agent(model: str = None) -> Agent:
     For relevant alerts:
     <json>
     {
+        "rationale": "This alert is about a track blockage, which affects commuting schedules.",
         "notify_user": true,
-        "message_content": "Track blockage affecting 2 Line trains. Trains running every 20-25 minutes until further notice. Expect longer wait times.",
-        "rationale": "This alert is about a track blockage, which affects commuting schedules."
+        "message_content": "Track blockage affecting 2 Line trains. Trains running every 20-25 minutes until further notice. Expect longer wait times."
     }
     </json>
     
     For non-relevant alerts:
     <json>
     {
+        "rationale": "This alert is about elevator maintenance, which doesn't affect commuting schedules.",
         "notify_user": false,
-        "message_content": "",
-        "rationale": "This alert is about elevator maintenance, which doesn't affect commuting schedules."
+        "message_content": ""
     }
     </json>
     

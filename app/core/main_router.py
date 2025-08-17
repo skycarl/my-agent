@@ -71,7 +71,7 @@ class ModelsResponse(BaseModel):
     """Models endpoint response model."""
 
     models: list[str]
-    default_model: str = "gpt-4o"
+    default_model: str = config.default_model
 
 
 @router.get("/healthcheck", status_code=200, response_model=HealthResponse)
@@ -85,7 +85,9 @@ def healthcheck():
 def get_models():
     """Get list of available OpenAI models."""
     logger.debug("Models endpoint called")
-    return ModelsResponse(models=config.valid_openai_models, default_model="gpt-4o")
+    return ModelsResponse(
+        models=config.valid_openai_models, default_model=config.default_model
+    )
 
 
 @router.post("/agent_response", status_code=200, dependencies=[Depends(verify_token)])
@@ -132,8 +134,8 @@ async def create_agent_response(request: AgentRequest):
             max_messages=config.max_conversation_history
         )
 
-        # Determine which model to use (default to gpt-4o-mini for agents)
-        model = request.model or "gpt-4o-mini"
+        # Determine which model to use (default to config default for agents)
+        model = request.model or config.default_model
         logger.debug(f"Using model '{model}' for this agent request")
 
         # Validate the model

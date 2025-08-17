@@ -28,6 +28,7 @@ class TestAsyncEndpoints:
             with patch("app.core.auth.config") as auth_config:
                 mock_config.openai_api_key = "test-key"
                 mock_config.valid_openai_models = ["gpt-4o-mini", "gpt-4o"]
+                mock_config.default_model = "gpt-4o-mini"
                 mock_config.openai_timeout = 30
                 mock_config.openai_max_retries = 3
                 mock_config.authorized_user_id = 12345

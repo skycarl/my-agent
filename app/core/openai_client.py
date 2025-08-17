@@ -64,8 +64,8 @@ class OpenAIClient:
             logger.debug("Testing OpenAI API key validity...")
             test_client = OpenAI(api_key=config.openai_api_key)
             response = test_client.responses.create(
-                model="gpt-4o-mini",
-                input="This is a healthcheck. Please respond with 'OK'.",
+                model="gpt-5-nano",
+                input="This is a healthcheck. Respond with 'OK'.",
                 max_output_tokens=16,
             )
             logger.info("OpenAI API key validation successful")

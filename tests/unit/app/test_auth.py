@@ -50,6 +50,6 @@ def test_models_endpoint():
     data = response.json()
     assert "models" in data
     assert "default_model" in data
-    assert data["default_model"] == "gpt-4o"
+    assert data["default_model"] == "gpt-5"
     assert isinstance(data["models"], list)
     assert len(data["models"]) > 0

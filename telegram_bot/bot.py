@@ -46,7 +46,7 @@ class TelegramBot:
         self.x_token = config.x_token
         self.authorized_user_id = config.authorized_user_id
         self.max_conversation_history = config.max_conversation_history
-        self.selected_model: str = "gpt-4o"
+        self.selected_model: str = config.default_model
         self.application: Application | None = None
 
         # Note: Conversation history is now managed by the backend in persistent storage
