@@ -8,6 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Dict, List, Optional
 from pydantic import BaseModel, Field, field_validator, ConfigDict
+from app.core.timezone_utils import now_local
 
 
 class Harvest(BaseModel):
@@ -108,7 +109,7 @@ class GardenDB(BaseModel):
         if not plant:
             raise ValueError(f"Plant '{plant_name}' not found in the garden")
 
-        harvest = Harvest(date=datetime.now(), yield_amount=yield_amount, notes=notes)
+        harvest = Harvest(date=now_local(), yield_amount=yield_amount, notes=notes)
         plant.add_harvest(harvest)
 
     @staticmethod

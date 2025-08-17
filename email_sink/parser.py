@@ -2,12 +2,12 @@
 Email parser for extracting structured data from raw email messages.
 """
 
-from datetime import datetime
 from typing import Optional
 from loguru import logger
 import mailparser
 
 from .models import EmailAlert
+from app.core.timezone_utils import now_local
 
 
 class EmailParser:
@@ -64,9 +64,9 @@ class EmailParser:
                     date = mail.date
                 except Exception as e:
                     logger.warning(f"Failed to parse email date: {e}")
-                    date = datetime.now()
+                    date = now_local()
             else:
-                date = datetime.now()
+                date = now_local()
 
             # Extract raw headers for additional context
             raw_headers = {}

@@ -6,7 +6,6 @@ import json
 import hashlib
 from pathlib import Path
 from typing import Dict, List, Optional
-from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -15,6 +14,7 @@ from loguru import logger
 from app.core.settings import config
 from app.core.task_manager import task_manager
 from app.models.tasks import TaskConfig, TasksConfiguration
+from app.core.timezone_utils import now_local_isoformat
 
 
 class SchedulerService:
@@ -67,7 +67,7 @@ class SchedulerService:
 
             # Update last_modified timestamp
             if "last_modified" not in data:
-                data["last_modified"] = datetime.now().isoformat()
+                data["last_modified"] = now_local_isoformat()
 
             tasks_config = TasksConfiguration(**data)
             logger.info(

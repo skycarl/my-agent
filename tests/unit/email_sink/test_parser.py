@@ -176,9 +176,9 @@ class TestEmailParser:
         with patch("email_sink.parser.mailparser") as mock_mailparser:
             mock_mailparser.parse_from_bytes.return_value = mock_mail
 
-            with patch("email_sink.parser.datetime") as mock_datetime:
+            with patch("email_sink.parser.now_local") as mock_now_local:
                 mock_now = datetime(2025, 1, 15, 12, 0, 0)
-                mock_datetime.now.return_value = mock_now
+                mock_now_local.return_value = mock_now
 
                 alert = EmailParser.parse_raw_message("12345", b"Raw email")
 

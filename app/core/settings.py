@@ -21,7 +21,16 @@ class Config(BaseSettings):
 
     # Valid OpenAI models that can be used
     valid_openai_models: list[str] = Field(
-        default=["gpt-5", "gpt-5-mini", "o4-mini", "o3", "o3-mini", "gpt-4.1", "gpt-4o", "gpt-4o-mini"],
+        default=[
+            "gpt-5",
+            "gpt-5-mini",
+            "o4-mini",
+            "o3",
+            "o3-mini",
+            "gpt-4.1",
+            "gpt-4o",
+            "gpt-4o-mini",
+        ],
         description="List of valid OpenAI models that can be used",
     )
 
@@ -95,6 +104,12 @@ class Config(BaseSettings):
     )
     storage_path: str = Field(
         default="storage", description="Path to storage directory for persistent data"
+    )
+
+    # Timezone Configuration
+    timezone: str = Field(
+        default="America/Los_Angeles",
+        description="Application timezone (e.g., 'America/Los_Angeles', 'UTC', 'America/New_York')",
     )
 
     # Task Scheduler Configuration

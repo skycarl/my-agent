@@ -8,12 +8,12 @@ and ensures thread-safe file operations.
 
 import json
 import fcntl
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 from loguru import logger
 from pydantic import BaseModel, Field
 from app.core.settings import config
+from app.core.timezone_utils import now_local_isoformat
 
 
 class ConversationMessage(BaseModel):
@@ -25,7 +25,7 @@ class ConversationMessage(BaseModel):
         default="chat", description="Type of message: chat or alert"
     )
     timestamp: str = Field(
-        default_factory=lambda: datetime.now().isoformat(),
+        default_factory=now_local_isoformat,
         description="ISO timestamp when message was created",
     )
     message_id: Optional[str] = Field(

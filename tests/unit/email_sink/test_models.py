@@ -3,10 +3,10 @@ Unit tests for email_sink.models module.
 """
 
 import pytest
-from datetime import datetime
 from pydantic import ValidationError
 
 from email_sink.models import EmailAlert, EmailSinkConfig, AlertRequest
+from app.core.timezone_utils import now_local
 
 
 class TestEmailAlert:
@@ -14,7 +14,7 @@ class TestEmailAlert:
 
     def test_email_alert_creation(self):
         """Test creating a valid EmailAlert."""
-        date = datetime.now()
+        date = now_local()
         alert = EmailAlert(
             uid="12345",
             subject="Test Subject",
@@ -32,7 +32,7 @@ class TestEmailAlert:
 
     def test_email_alert_with_headers(self):
         """Test EmailAlert with raw headers."""
-        date = datetime.now()
+        date = now_local()
         headers = {"Message-ID": "123", "Content-Type": "text/plain"}
 
         alert = EmailAlert(
@@ -100,7 +100,7 @@ class TestAlertRequest:
 
     def test_alert_request_creation(self):
         """Test creating a valid AlertRequest."""
-        date = datetime.now()
+        date = now_local()
         request = AlertRequest(
             uid="12345",
             subject="Test Alert",
@@ -118,7 +118,7 @@ class TestAlertRequest:
 
     def test_alert_request_custom_type(self):
         """Test AlertRequest with custom alert type."""
-        date = datetime.now()
+        date = now_local()
         request = AlertRequest(
             uid="12345",
             subject="Test Alert",

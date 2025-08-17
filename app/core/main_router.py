@@ -1,5 +1,4 @@
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends
@@ -17,6 +16,7 @@ from app.models.tasks import (
 )
 
 from app.core.settings import config
+from app.core.timezone_utils import now_local
 
 # Import the agents and Runner
 from agents import Runner
@@ -272,7 +272,7 @@ async def process_alert(request: AlertRequest):
     Returns:
         Success confirmation with alert ID and agent processing metadata
     """
-    start_time = datetime.now()
+    start_time = now_local()
     agent_metadata = AgentProcessingMetadata(
         success=False,
         primary_agent=None,
@@ -321,7 +321,7 @@ async def process_alert(request: AlertRequest):
             result = await Runner.run(orchestrator_agent, input=agent_input)
 
             # Extract agent processing metadata
-            processing_time = (datetime.now() - start_time).total_seconds() * 1000
+            processing_time = (now_local() - start_time).total_seconds() * 1000
             agent_metadata.success = True
             agent_metadata.agent_response = result.final_output
             agent_metadata.processing_time_ms = int(processing_time)
@@ -389,7 +389,7 @@ async def process_alert(request: AlertRequest):
             logger.debug(f"Agent response: {result.final_output}")
 
         except Exception as e:
-            processing_time = (datetime.now() - start_time).total_seconds() * 1000
+            processing_time = (now_local() - start_time).total_seconds() * 1000
             agent_metadata.success = False
             agent_metadata.error_message = f"Agent processing failed: {str(e)}"
             agent_metadata.processing_time_ms = int(processing_time)
@@ -422,7 +422,7 @@ async def process_alert(request: AlertRequest):
             "body": request.body,
             "sender": request.sender,
             "received_date": request.date.isoformat(),
-            "stored_date": datetime.now().isoformat(),
+            "stored_date": now_local().isoformat(),
             "alert_type": request.alert_type,
             "agent_processing": agent_metadata.model_dump(),
         }
@@ -456,7 +456,7 @@ async def process_alert(request: AlertRequest):
         return JSONResponse(content=jsonable_encoder(response))
 
     except Exception as e:
-        processing_time = (datetime.now() - start_time).total_seconds() * 1000
+        processing_time = (now_local() - start_time).total_seconds() * 1000
         logger.error(f"Error in /process_alert endpoint: {str(e)}")
 
         # Update agent metadata with error info

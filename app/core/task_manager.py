@@ -5,12 +5,12 @@ Task manager for executing scheduled tasks and handling results.
 import json
 import uuid
 import httpx
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Tuple
 from loguru import logger
 
 from app.core.settings import config
+from app.core.timezone_utils import now_local
 from app.models.tasks import (
     TaskConfig,
     TaskExecutionResult,
@@ -72,7 +72,7 @@ class TaskManager:
             Task execution result
         """
         execution_id = str(uuid.uuid4())
-        started_at = datetime.now()
+        started_at = now_local()
 
         logger.info(f"Executing task '{task.id}' (execution_id: {execution_id})")
 
@@ -119,7 +119,7 @@ class TaskManager:
             else:
                 raise ValueError(f"Unknown task type: {task.type}")
 
-            result.completed_at = datetime.now()
+            result.completed_at = now_local()
 
             if result.success:
                 logger.info(f"Task '{task.id}' completed successfully")
@@ -132,7 +132,7 @@ class TaskManager:
 
             result.success = False
             result.error_message = error_msg
-            result.completed_at = datetime.now()
+            result.completed_at = now_local()
 
             # Send error to Telegram if configured
             if (
@@ -262,7 +262,7 @@ class TaskManager:
         return {
             "message": "S3 backup completed successfully (placeholder)",
             "files_backed_up": 0,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now_local().isoformat(),
         }
 
     async def _send_telegram_message(

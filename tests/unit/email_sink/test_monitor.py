@@ -8,6 +8,7 @@ from datetime import datetime
 
 from email_sink.monitor import EmailMonitorService, get_monitor_service
 from email_sink.models import EmailAlert, EmailSinkConfig
+from app.core.timezone_utils import now_local
 
 
 class TestEmailMonitorService:
@@ -241,7 +242,7 @@ class TestEmailMonitorService:
             subject="Test Alert",
             body="Alert body",
             sender="test@example.com",
-            date=datetime.now(),
+            date=now_local(),
         )
 
         mock_response = Mock()
@@ -277,7 +278,7 @@ class TestEmailMonitorService:
             subject="Test Alert",
             body="Alert body",
             sender="test@example.com",
-            date=datetime.now(),
+            date=now_local(),
         )
 
         mock_response = Mock()
@@ -306,7 +307,7 @@ class TestEmailMonitorService:
             subject="Test Alert",
             body="Alert body",
             sender="test@example.com",
-            date=datetime.now(),
+            date=now_local(),
         )
 
         with patch("email_sink.monitor.config") as mock_config:
