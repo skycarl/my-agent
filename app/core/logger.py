@@ -103,6 +103,13 @@ def init_logging():
     # Get the log level from settings
     log_level = get_log_level()
 
+    # customize level colors
+    logger.level("DEBUG", color="<blue>")
+    logger.level("INFO", color="")
+    logger.level("WARNING", color="<yellow>")
+    logger.level("ERROR", color="<red>")
+    logger.level("CRITICAL", color="<red>")
+
     # set logs output, level and format
     logger.configure(
         handlers=[{"sink": sys.stdout, "level": log_level, "format": format_record}]
