@@ -67,7 +67,7 @@ class TestAgentConfiguration:
         """Test that Orchestrator agent is properly configured."""
         agent = create_orchestrator_agent()
         assert agent.name == "Orchestrator"
-        assert len(agent.handoffs) == 2
+        assert len(agent.handoffs) == 3
         assert agent.model is not None
         assert agent.instructions is not None
         assert "orchestrator" in agent.instructions.lower()
@@ -87,7 +87,7 @@ class TestAgentConfiguration:
         # Test that handoffs exist
         orchestrator = create_orchestrator_agent()
         assert orchestrator.handoffs is not None
-        assert len(orchestrator.handoffs) == 2
+        assert len(orchestrator.handoffs) == 3
 
 
 class TestAgentFactoryFunctions:
@@ -118,7 +118,7 @@ class TestAgentFactoryFunctions:
 
         assert agent.name == "Orchestrator"
         assert agent.model == custom_model
-        assert len(agent.handoffs) == 2
+        assert len(agent.handoffs) == 3
 
         # Verify that handoff agents also use the same model
         for handoff_agent in agent.handoffs:

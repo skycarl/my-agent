@@ -47,7 +47,8 @@ class ConversationManager:
             storage_path: Optional custom storage path, defaults to config
         """
         self.storage_dir = Path(storage_path or config.storage_path)
-        self.storage_dir.mkdir(exist_ok=True)
+        # Ensure storage directory exists, creating parents if necessary
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.conversation_file = self.storage_dir / "conversation.json"
 
         # Since we only support single user, use the authorized user ID

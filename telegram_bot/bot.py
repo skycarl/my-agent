@@ -321,7 +321,7 @@ Just send me any message and I'll respond using AI!
                     f"{self.app_url}/agent_response",
                     json=api_request,
                     headers=headers,
-                    timeout=5.0,  # Short timeout since we're not waiting for AI processing
+                    timeout=1.0,  # Very short timeout; we don't wait for backend processing
                 )
 
                 if response.status_code == 200:
@@ -335,9 +335,8 @@ Just send me any message and I'll respond using AI!
                     )
 
         except httpx.TimeoutException:
-            logger.warning(
-                "Backend API call timed out - message may still be processing"
-            )
+            # Fire-and-forget: silently ignore backend timeouts
+            pass
         except Exception as e:
             logger.error(f"Error sending message to backend: {e}")
             # Note: We don't re-raise here since this is fire-and-forget

@@ -74,7 +74,7 @@ class APICallConfig(BaseModel):
     headers: Optional[Dict[str, str]] = Field(
         default=None, description="Additional headers to include"
     )
-    timeout: int = Field(default=30, description="Request timeout in seconds")
+    timeout: int = Field(default=120, description="Request timeout in seconds")
 
 
 # Removed TelegramConfig and CustomFunctionConfig as sending is owned by the

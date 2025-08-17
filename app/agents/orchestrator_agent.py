@@ -10,6 +10,7 @@ from loguru import logger
 from app.core.settings import config
 from .gardener_agent import create_gardener_agent
 from .commute_agent import create_commute_agent
+from .scheduler_agent import create_scheduler_agent
 
 
 def create_orchestrator_agent(model: str = None) -> Agent:
@@ -28,6 +29,7 @@ def create_orchestrator_agent(model: str = None) -> Agent:
     # Create specialized agents with the same model
     gardener_agent = create_gardener_agent(agent_model)
     commute_agent = create_commute_agent(agent_model)
+    scheduler_agent = create_scheduler_agent(agent_model)
 
     orchestrator = Agent(
         name="Orchestrator",
@@ -47,6 +49,8 @@ def create_orchestrator_agent(model: str = None) -> Agent:
        - General commuting assistance
        - Processing transportation/commute alerts and notifications
     
+    3. **Scheduler** - Converts natural-language scheduling requests into scheduled tasks by calling the add_scheduled_task tool.
+    
     **Routing Guidelines:**
     
     **For Garden-Related Requests:**
@@ -57,6 +61,10 @@ def create_orchestrator_agent(model: str = None) -> Agent:
     - For ANY commute, transportation, travel, or schedule related questions → Hand off to Commute Assistant
     - For transportation alerts or notifications → Hand off to Commute Assistant
     - Examples: "What are the monorail hours?", "Transportation schedules", processing traffic alerts
+    
+    **For Scheduling/Reminder Requests:**
+    - If the user asks to "schedule", "remind", "repeat", mentions patterns like "every N minutes/hours/days", "cron", or provides a specific date/time → Hand off to Scheduler
+    - Examples: "Remind me to stand up every 30 minutes", "Schedule this for Sep 1 at 9am", "Run this cron every Tuesday at 19:30"
     
     **For Alert Processing:**
     When you receive an alert for processing (indicated by structured alert data), analyze the alert content and:
@@ -81,11 +89,11 @@ def create_orchestrator_agent(model: str = None) -> Agent:
     
     Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
     """,
-        handoffs=[gardener_agent, commute_agent],
+        handoffs=[gardener_agent, commute_agent, scheduler_agent],
         model=agent_model,
     )
 
     logger.debug(
-        f"Orchestrator agent created with model '{agent_model}' and handoffs to Gardener and Commute Assistant agents"
+        f"Orchestrator agent created with model '{agent_model}' and handoffs to Gardener, Commute Assistant, and Scheduler agents"
     )
     return orchestrator

@@ -192,4 +192,6 @@ You can also run specific hooks or run them only on staged files. See the [pre-c
 - [ ] Memory for keeping track of when the user is going into the office, so we can ignore commute alerts when they are not in the office
 - [ ] Ability to update the scheduled tasks file via conversation
 - [ ] BAML for prompts and output parsing
-- [ ] Fix agent default models
+- [x] Fix agent default models
+- [ ] Analyze firewall alerts from pfSense
+- [ ] look at async logic for the agent_response endpoint; how is this working for multiple concurrent requests? will this work?

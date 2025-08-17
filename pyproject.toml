@@ -1,6 +1,6 @@
 [project]
 name = "my-agent"
-version = "0.8.2"
+version = "0.9.0"
 description = "My agent"
 readme = "README.md"
 requires-python = ">=3.13"

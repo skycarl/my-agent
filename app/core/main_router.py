@@ -11,13 +11,13 @@ from loguru import logger
 from pydantic import BaseModel
 
 from app.agents.orchestrator_agent import create_orchestrator_agent
-from app.core.agent_response_handler import AgentResponseHandler
+from app.core import agent_response_handler
 from app.core.auth import verify_token
-from app.core.conversation_manager import get_conversation_manager
+from app.core import conversation_manager
 from app.core.scheduler import scheduler_service
 from app.core.settings import config
 from app.core.task_store import append_task_to_config
-from app.core.telegram_client import telegram_client
+from app.core import telegram_client
 from app.core.timezone_utils import now_local
 from app.models.tasks import (
     AgentProcessingMetadata,
@@ -171,7 +171,7 @@ async def create_agent_response(request: AgentRequest):
     """
     try:
 
-        conversation_manager = get_conversation_manager()
+        conversation_manager_instance = conversation_manager.get_conversation_manager()
 
         # Extract user message from request
         if request.input is not None:
@@ -187,12 +187,12 @@ async def create_agent_response(request: AgentRequest):
             raise HTTPException(status_code=400, detail="No input or messages provided")
 
         # Add user message to persistent conversation history
-        conversation_manager.add_message(
+        conversation_manager_instance.add_message(
             role="user", content=user_message, message_type="chat"
         )
 
         # Get conversation history from disk for agent processing
-        conversation_history = conversation_manager.get_conversation_history(
+        conversation_history = conversation_manager_instance.get_conversation_history(
             max_messages=config.max_conversation_history
         )
 
@@ -230,7 +230,7 @@ async def create_agent_response(request: AgentRequest):
         (
             should_respond,
             response_message,
-        ) = await AgentResponseHandler.process_user_query_response(
+        ) = await agent_response_handler.AgentResponseHandler.process_user_query_response(
             response=result.final_output, user_id=config.authorized_user_id
         )
 
@@ -239,7 +239,7 @@ async def create_agent_response(request: AgentRequest):
 
         if should_respond and response_message.strip():
             # Add agent response to conversation history
-            conversation_manager.add_message(
+            conversation_manager_instance.add_message(
                 role="assistant", content=response_message, message_type="chat"
             )
 
@@ -247,7 +247,7 @@ async def create_agent_response(request: AgentRequest):
             try:
                 target_user_id = config.authorized_user_id
                 if target_user_id:
-                    success, message_id = await telegram_client.send_message(
+                    success, message_id = await telegram_client.telegram_client.send_message(
                         user_id=target_user_id,
                         message=response_message,
                         parse_mode="HTML",
@@ -296,7 +296,7 @@ async def create_agent_response(request: AgentRequest):
                 error_message = (
                     f"Sorry, I encountered an error processing your request: {str(e)}"
                 )
-                await telegram_client.send_message(
+                await telegram_client.telegram_client.send_message(
                     user_id=target_user_id,
                     message=error_message,
                     parse_mode="HTML",
@@ -381,7 +381,7 @@ async def process_alert(request: AlertRequest):
                 "Orchestrator"  # Could be updated if we can detect handoffs
             )            
 
-            alert_processing_result = await AgentResponseHandler.process_alert_response(
+            alert_processing_result = await agent_response_handler.AgentResponseHandler.process_alert_response(
                 response=result.final_output, alert_id=request.uid
             )
 
@@ -536,8 +536,8 @@ async def clear_conversation():
         Success confirmation
     """
     try:
-        conversation_manager = get_conversation_manager()
-        success = conversation_manager.clear_conversation_history()
+        conversation_manager_instance = conversation_manager.get_conversation_manager()
+        success = conversation_manager_instance.clear_conversation_history()
 
         if success:
             logger.info("Successfully cleared conversation history")
@@ -599,7 +599,7 @@ async def send_telegram_message(request: TelegramMessageRequest):
         )
 
         # Send the message
-        success, message_id = await telegram_client.send_message(
+        success, message_id = await telegram_client.telegram_client.send_message(
             user_id=target_user_id,
             message=request.message,
             parse_mode=request.parse_mode,
