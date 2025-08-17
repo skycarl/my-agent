@@ -77,31 +77,8 @@ class APICallConfig(BaseModel):
     timeout: int = Field(default=30, description="Request timeout in seconds")
 
 
-class TelegramConfig(BaseModel):
-    """Configuration for Telegram message sending."""
-
-    send_to_user: bool = Field(
-        default=False, description="Whether to send the result to a Telegram user"
-    )
-    user_id: Optional[int] = Field(
-        default=None,
-        description="Telegram user ID to send to (null = use authorized user)",
-    )
-    message_prefix: Optional[str] = Field(
-        default=None, description="Optional prefix to add to the message"
-    )
-    send_on_error: bool = Field(
-        default=True, description="Whether to send error messages to Telegram"
-    )
-
-
-class CustomFunctionConfig(BaseModel):
-    """Configuration for custom function tasks."""
-
-    function_name: str = Field(description="Name of the function to execute")
-    parameters: Dict[str, Any] = Field(
-        default_factory=dict, description="Parameters to pass to the function"
-    )
+# Removed TelegramConfig and CustomFunctionConfig as sending is owned by the
+# /agent_response endpoint and we only support API call tasks.
 
 
 class TaskConfig(BaseModel):
@@ -109,23 +86,13 @@ class TaskConfig(BaseModel):
 
     id: str = Field(description="Unique task identifier")
     name: str = Field(description="Human-readable task name")
-    type: Literal["api_call_with_telegram", "api_call_only", "custom_function"] = Field(
-        description="Type of task to execute"
-    )
+    type: Literal["api_call"] = Field(description="Type of task to execute")
     enabled: bool = Field(default=True, description="Whether the task is enabled")
     schedule: TaskSchedule = Field(description="Task schedule configuration")
 
     # Task-specific configurations
     api_call: Optional[APICallConfig] = Field(
         default=None, description="API call configuration (required for api_call tasks)"
-    )
-    telegram: Optional[TelegramConfig] = Field(
-        default=None,
-        description="Telegram configuration (required for tasks with telegram)",
-    )
-    custom_function: Optional[CustomFunctionConfig] = Field(
-        default=None,
-        description="Custom function configuration (required for custom_function tasks)",
     )
 
     # Task metadata
@@ -135,22 +102,9 @@ class TaskConfig(BaseModel):
 
     def model_post_init(self, __context) -> None:
         """Validate that required configurations are provided based on task type."""
-        if (
-            self.type in ["api_call_with_telegram", "api_call_only"]
-            and not self.api_call
-        ):
+        if self.type == "api_call" and not self.api_call:
             raise ValueError(
                 f"api_call configuration is required for task type '{self.type}'"
-            )
-
-        if self.type == "api_call_with_telegram" and not self.telegram:
-            raise ValueError(
-                "telegram configuration is required for 'api_call_with_telegram' task type"
-            )
-
-        if self.type == "custom_function" and not self.custom_function:
-            raise ValueError(
-                "custom_function configuration is required for 'custom_function' task type"
             )
 
 

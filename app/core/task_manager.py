@@ -95,10 +95,8 @@ class TaskManager:
             response_data: Dict[str, Any] = {}
 
             async def run_primary_action() -> tuple[bool, Dict[str, Any]]:
-                if task.type in ("api_call_only", "api_call_with_telegram"):
+                if task.type == "api_call":
                     return await self._execute_api_call(task)
-                elif task.type == "custom_function":
-                    return await self._execute_custom_function(task)
                 else:
                     raise ValueError(f"Unknown task type: {task.type}")
 
@@ -117,24 +115,8 @@ class TaskManager:
             # Prepare result data
             result.result_data = response_data
 
-            if task.type == "api_call_with_telegram":
-                # If primary action succeeded, optionally send telegram
-                if success and task.telegram:
-                    telegram_success = await self._send_telegram_message(
-                        task, response_data
-                    )
-                    result.success = success and telegram_success
-                    if telegram_success:
-                        result.result_data["telegram_sent"] = True
-                    else:
-                        result.result_data["telegram_sent"] = False
-                        result.result_data["telegram_error"] = (
-                            "Failed to send Telegram message"
-                        )
-                else:
-                    result.success = success
-            else:
-                result.success = success
+            # With endpoint-owned sending, task manager just records success of API call
+            result.success = success
 
             result.completed_at = now_local()
 
@@ -142,6 +124,19 @@ class TaskManager:
                 logger.info(f"Task '{task.id}' completed successfully")
             else:
                 logger.warning(f"Task '{task.id}' completed with errors")
+                # Notify on non-exception failures as well (e.g., non-2xx HTTP)
+                try:
+                    error_summary = result.error_message or (
+                        f"HTTP {response_data.get('status_code')} - "
+                        f"{response_data.get('error') or response_data.get('response')}"
+                        if isinstance(response_data, dict)
+                        else str(response_data)
+                    )
+                    await self._notify_error_via_endpoint(task, str(error_summary))
+                except Exception as telegram_error:
+                    logger.error(
+                        f"Failed to send error notification (non-exception failure): {telegram_error}"
+                    )
 
         except Exception as e:
             error_msg = str(e)
@@ -152,15 +147,11 @@ class TaskManager:
             result.completed_at = now_local()
 
             # Send error to Telegram if configured
-            if (
-                task.type == "api_call_with_telegram"
-                and task.telegram
-                and task.telegram.send_on_error
-            ):
-                try:
-                    await self._send_error_to_telegram(task, error_msg)
-                except Exception as telegram_error:
-                    logger.error(f"Failed to send error to Telegram: {telegram_error}")
+            # On error, send a simple notification via the internal endpoint
+            try:
+                await self._notify_error_via_endpoint(task, error_msg)
+            except Exception as telegram_error:
+                logger.error(f"Failed to send error notification: {telegram_error}")
 
         # Store the result
         self.results_storage.add_result(result)
@@ -243,133 +234,14 @@ class TaskManager:
             logger.error(error_msg)
             return False, {"error": error_msg}
 
-    async def _execute_custom_function(
-        self, task: TaskConfig
-    ) -> Tuple[bool, Dict[str, Any]]:
-        """Execute a custom function task."""
-        if not task.custom_function:
-            return False, {"error": "No custom function configuration provided"}
+    # Removed custom function support; TaskManager now only supports 'api_call' tasks.
 
-        function_name = task.custom_function.function_name
-        parameters = task.custom_function.parameters
-
-        logger.debug(f"Executing custom function: {function_name}")
-
-        # Registry of available custom functions
-        custom_functions = {
-            "s3_backup": self._s3_backup_function,
-            # Add more custom functions here as needed
-        }
-
-        if function_name not in custom_functions:
-            return False, {"error": f"Unknown custom function: {function_name}"}
-
+    async def _notify_error_via_endpoint(self, task: TaskConfig, error_message: str) -> None:
+        """Notify the user of a task error via the internal send_telegram_message endpoint."""
         try:
-            result = await custom_functions[function_name](parameters)
-            return True, result
-        except Exception as e:
-            error_msg = f"Custom function {function_name} failed: {str(e)}"
-            logger.error(error_msg)
-            return False, {"error": error_msg}
-
-    async def _s3_backup_function(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
-        """Example custom function for S3 backup (placeholder)."""
-        # This is a placeholder - actual S3 backup implementation would go here
-        logger.info("S3 backup function called (placeholder implementation)")
-        return {
-            "message": "S3 backup completed successfully (placeholder)",
-            "files_backed_up": 0,
-            "timestamp": now_local().isoformat(),
-        }
-
-    async def _send_telegram_message(
-        self, task: TaskConfig, response_data: Dict[str, Any]
-    ) -> bool:
-        """Send task result to Telegram."""
-        if not task.telegram:
-            return False
-
-        try:
-            # If the API endpoint already sent the Telegram message (e.g. /agent_response),
-            # avoid sending a duplicate here.
-            if isinstance(response_data.get("response"), dict):
-                inner_response = response_data["response"]
-                if inner_response.get("response_sent") is True:
-                    logger.info(
-                        "API endpoint already delivered the message via Telegram; skipping duplicate send"
-                    )
-                    return True
-
-            # Extract the message from the API response
-            message_text = self._format_telegram_message(task, response_data)
-
-            # If formatting produced an empty message (e.g. endpoint already sent it), skip
-            if not message_text or not message_text.strip():
-                logger.debug(
-                    "No Telegram message content after formatting; skipping send"
-                )
-                return True
-
-            # Add prefix if configured
-            if task.telegram.message_prefix:
-                message_text = f"{task.telegram.message_prefix}\n\n{message_text}"
-
-            # Determine target user
-            target_user_id = task.telegram.user_id or config.authorized_user_id
-
-            # Create message request
-            telegram_request = TelegramMessageRequest(
-                user_id=target_user_id, message=message_text
-            )
-
-            # Send via internal API
-            headers = {"Content-Type": "application/json", "X-Token": config.x_token}
-
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{config.app_url}/send_telegram_message",
-                    json=telegram_request.model_dump(),
-                    headers=headers,
-                    timeout=30.0,
-                )
-
-                if response.status_code == 200:
-                    logger.debug("Telegram message sent successfully")
-                    return True
-                else:
-                    logger.warning(
-                        f"Failed to send Telegram message: {response.status_code}"
-                    )
-                    return False
-
-        except Exception as e:
-            logger.error(f"Error sending Telegram message: {e}")
-            return False
-
-    async def _send_error_to_telegram(
-        self, task: TaskConfig, error_message: str
-    ) -> None:
-        """Send error message to Telegram."""
-        if not task.telegram:
-            return
-
-        try:
-            # Format error message
             message_text = f"❌ Task '{task.name}' failed:\n\n{error_message}"
-
-            # Add prefix if configured
-            if task.telegram.message_prefix:
-                message_text = f"{task.telegram.message_prefix}\n\n{message_text}"
-
-            # Determine target user
-            target_user_id = task.telegram.user_id or config.authorized_user_id
-
-            # Create message request
-            telegram_request = TelegramMessageRequest(
-                user_id=target_user_id, message=message_text
-            )
-
-            # Send via internal API
+            target_user_id = config.authorized_user_id
+            telegram_request = TelegramMessageRequest(user_id=target_user_id, message=message_text)
             headers = {"Content-Type": "application/json", "X-Token": config.x_token}
 
             async with httpx.AsyncClient() as client:
@@ -379,45 +251,8 @@ class TaskManager:
                     headers=headers,
                     timeout=30.0,
                 )
-
         except Exception as e:
-            logger.error(f"Error sending error message to Telegram: {e}")
-
-    def _format_telegram_message(
-        self, task: TaskConfig, response_data: Dict[str, Any]
-    ) -> str:
-        """Format the response data for Telegram message."""
-        try:
-            # Try to extract the main response content
-            if "response" in response_data and isinstance(
-                response_data["response"], dict
-            ):
-                inner = response_data["response"]
-                # If the endpoint already sent the message, return empty string so caller can skip
-                if inner.get("response_sent") is True:
-                    return ""
-                # If the endpoint returned the actual text under 'response', use it
-                if "response" in inner and inner["response"]:
-                    return str(inner["response"])
-                # Otherwise, if a human-readable message exists, use it
-                if "message" in inner and inner["message"]:
-                    return str(inner["message"])
-                # Fallback to JSON dump of the inner payload
-                return json.dumps(inner, indent=2)
-            elif "response" in response_data:
-                return str(response_data["response"])
-            elif "message" in response_data:
-                return str(response_data["message"])
-            else:
-                # Fallback to JSON representation
-                return json.dumps(response_data, indent=2)
-
-        except Exception as e:
-            logger.warning(f"Error formatting Telegram message: {e}")
-            return f"Task '{task.name}' completed, but response formatting failed."
-
-        # This should never be reached, but mypy needs it
-        return "Task completed, but response formatting failed."
+            logger.error(f"Error sending error notification: {e}")
 
     def get_task_results(self, task_id: str, limit: int = 10) -> list:
         """Get recent results for a specific task."""

@@ -107,8 +107,6 @@ class NewTaskRequest(BaseModel):
     description: Optional[str] = None
     schedule: dict
     api_call: Optional[dict] = None
-    telegram: Optional[dict] = None
-    custom_function: Optional[dict] = None
     max_retries: Optional[int] = None
     retry_delay: Optional[int] = None
 
@@ -238,6 +236,9 @@ async def create_agent_response(request: AgentRequest):
             response=result.final_output, user_id=config.authorized_user_id
         )
 
+        send_success = False
+        telegram_message_id = None
+
         if should_respond and response_message.strip():
             # Add agent response to conversation history
             conversation_manager.add_message(
@@ -260,6 +261,8 @@ async def create_agent_response(request: AgentRequest):
                         logger.info(
                             "Successfully sent agent response to user via Telegram"
                         )
+                        send_success = True
+                        telegram_message_id = message_id
                     else:
                         logger.warning(
                             "Failed to send agent response to user via Telegram"
@@ -280,7 +283,9 @@ async def create_agent_response(request: AgentRequest):
             content={
                 "success": True,
                 "message": "Message processed successfully",
-                "response_sent": should_respond,
+                "response_sent": send_success,
+                "response_text": response_message if should_respond else "",
+                "telegram_message_id": telegram_message_id,
             }
         )
 

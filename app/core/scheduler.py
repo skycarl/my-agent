@@ -113,10 +113,16 @@ class SchedulerService:
         """Remove all existing scheduled jobs."""
         for job_id in list(self.loaded_task_ids):
             try:
+                job = self.scheduler.get_job(job_id)
+                if job is None:
+                    # Common for one-time jobs: APScheduler auto-removes them after execution
+                    logger.debug(f"Job not found (already removed): {job_id}")
+                    continue
                 self.scheduler.remove_job(job_id)
                 logger.debug(f"Removed job: {job_id}")
             except Exception as e:
-                logger.warning(f"Error removing job {job_id}: {e}")
+                # Absence is expected for completed one-time jobs
+                logger.debug(f"Non-critical error removing job {job_id}: {e}")
 
         self.loaded_task_ids.clear()
 

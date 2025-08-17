@@ -17,7 +17,7 @@ from app.core.task_store import append_task_to_config
 @function_tool
 async def add_scheduled_task(
     name: str,
-    task_type: Literal["api_call_with_telegram", "api_call_only", "custom_function"],
+    task_type: Literal["api_call"],
     schedule_type: Literal["cron", "interval", "date"],
     # Schedule specifics (provide the ones relevant to the schedule_type)
     cron_expression: Optional[str] = None,
@@ -27,20 +27,12 @@ async def add_scheduled_task(
     description: Optional[str] = None,
     enabled: bool = True,
     task_id: Optional[str] = None,
-    # API call configuration (for api_call_* types)
+    # API call configuration
     api_endpoint: Optional[str] = None,
     api_method: Literal["GET", "POST", "PUT"] = "POST",
     api_payload: Optional[Dict[str, Any]] = None,
     api_headers: Optional[Dict[str, str]] = None,
     api_timeout: Optional[int] = None,
-    # Telegram configuration (for api_call_with_telegram)
-    telegram_send_to_user: Optional[bool] = None,
-    telegram_user_id: Optional[int] = None,
-    telegram_message_prefix: Optional[str] = None,
-    telegram_send_on_error: Optional[bool] = None,
-    # Custom function configuration (for custom_function)
-    custom_function_name: Optional[str] = None,
-    custom_function_parameters: Optional[Dict[str, Any]] = None,
     # Retry behavior
     max_retries: Optional[int] = None,
     retry_delay: Optional[int] = None,
@@ -55,9 +47,7 @@ async def add_scheduled_task(
       will be interpreted in the app's default timezone. Example: "2025-09-01T09:00:00".
 
     For task_type:
-    - "api_call_with_telegram" → provide api_* fields; telegram_* optional but recommended
-    - "api_call_only" → provide api_* fields
-    - "custom_function" → provide custom_function_name and optional custom_function_parameters
+    - "api_call" → provide api_* fields
 
     Returns a dict with {success, task_id, message}.
     """
@@ -95,9 +85,9 @@ async def add_scheduled_task(
         }
 
         # Configure task-specific fields
-        if task_type in ("api_call_with_telegram", "api_call_only"):
+        if task_type == "api_call":
             if not api_endpoint:
-                raise ValueError("api_endpoint is required for api_call_* task types")
+                raise ValueError("api_endpoint is required for api_call tasks")
             new_task["api_call"] = {
                 "endpoint": api_endpoint,
                 "method": api_method or "POST",
@@ -105,32 +95,8 @@ async def add_scheduled_task(
                 "headers": api_headers or None,
                 "timeout": api_timeout or 30,
             }
-
-            if task_type == "api_call_with_telegram":
-                new_task["telegram"] = {
-                    "send_to_user": bool(telegram_send_to_user)
-                    if telegram_send_to_user is not None
-                    else True,
-                    "user_id": telegram_user_id,
-                    "message_prefix": telegram_message_prefix,
-                    "send_on_error": bool(telegram_send_on_error)
-                    if telegram_send_on_error is not None
-                    else True,
-                }
-
-        elif task_type == "custom_function":
-            if not custom_function_name:
-                raise ValueError(
-                    "custom_function_name is required for custom_function task type"
-                )
-            new_task["custom_function"] = {
-                "function_name": custom_function_name,
-                "parameters": custom_function_parameters or {},
-            }
         else:
-            raise ValueError(
-                "task_type must be one of: 'api_call_with_telegram', 'api_call_only', 'custom_function'"
-            )
+            raise ValueError("task_type must be 'api_call'")
 
         if max_retries is not None:
             new_task["max_retries"] = int(max_retries)
