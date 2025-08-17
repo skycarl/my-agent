@@ -57,5 +57,3 @@ def append_task_to_config(new_task_data: Dict[str, Any]) -> str:
     )
 
     return task_id
-
-

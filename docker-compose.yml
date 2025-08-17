@@ -5,7 +5,8 @@ services:
     build: 
       context: .
       dockerfile: .docker/Dockerfile
-    command: bash -c "uv run uvicorn app.main:app --host 0.0.0.0 --port 8001"
+    command: bash -c "uv run uvicorn app.main:app --host 0.0.0.0 --port 8001 --use-colors"
+    tty: true
     ports:
       - 8001:8001
     restart: always
@@ -15,6 +16,8 @@ services:
       - .:/app/workspace
     environment:
       - STORAGE_PATH=/app/workspace/storage
+      - TERM=xterm-256color
+      - FORCE_COLOR=1
 
   telegram-bot:
     container_name: telegram_bot
@@ -22,11 +25,15 @@ services:
       context: .
       dockerfile: .docker/Dockerfile
     command: bash -c "uv run python -m telegram_bot.main"
+    tty: true
     depends_on:
       - app
     restart: always
     networks:
       - app-network
+    environment:
+      - TERM=xterm-256color
+      - FORCE_COLOR=1
 
   mcp-server:
     container_name: mcp_server
@@ -34,6 +41,7 @@ services:
       context: .
       dockerfile: .docker/Dockerfile
     command: bash -c "uv run python -m my_mcp.main"
+    tty: true
     ports:
       - 8002:8002
     restart: always
@@ -43,6 +51,8 @@ services:
       - .:/app/workspace
     environment:
       - GARDEN_DB_PATH=/app/workspace/storage/garden_db.json
+      - TERM=xterm-256color
+      - FORCE_COLOR=1
 
   email-sink:
     container_name: email_sink
@@ -50,11 +60,15 @@ services:
       context: .
       dockerfile: .docker/Dockerfile
     command: bash -c "uv run python -m email_sink.main"
+    tty: true
     depends_on:
       - app
     restart: always
     networks:
       - app-network
+    environment:
+      - TERM=xterm-256color
+      - FORCE_COLOR=1
 
 networks:
   app-network:

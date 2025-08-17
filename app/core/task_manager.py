@@ -236,12 +236,16 @@ class TaskManager:
 
     # Removed custom function support; TaskManager now only supports 'api_call' tasks.
 
-    async def _notify_error_via_endpoint(self, task: TaskConfig, error_message: str) -> None:
+    async def _notify_error_via_endpoint(
+        self, task: TaskConfig, error_message: str
+    ) -> None:
         """Notify the user of a task error via the internal send_telegram_message endpoint."""
         try:
             message_text = f"❌ Task '{task.name}' failed:\n\n{error_message}"
             target_user_id = config.authorized_user_id
-            telegram_request = TelegramMessageRequest(user_id=target_user_id, message=message_text)
+            telegram_request = TelegramMessageRequest(
+                user_id=target_user_id, message=message_text
+            )
             headers = {"Content-Type": "application/json", "X-Token": config.x_token}
 
             async with httpx.AsyncClient() as client:

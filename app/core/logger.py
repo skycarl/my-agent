@@ -2,7 +2,6 @@ import logging
 import sys
 from pprint import pformat
 from loguru import logger
-from loguru._defaults import LOGURU_FORMAT
 
 
 class InterceptHandler(logging.Handler):
@@ -36,17 +35,20 @@ class InterceptHandler(logging.Handler):
 def format_record(record: dict) -> str:
     """
     Custom format for loguru loggers.
-    Uses pformat for log any data like request/response body during debug.
-    Works with logging if loguru handler it.
-    Example:
-    >>> payload = [{"users":[{"name": "Nick", "age": 87, "is_active": True}, {"name": "Alex", "age": 27, "is_active": True}], "count": 2}]
-    >>> logger.bind(payload=).debug("users payload")
-    >>> [   {   'count': 2,
-    >>>         'users': [   {'age': 87, 'is_active': True, 'name': 'Nick'},
-    >>>                      {'age': 27, 'is_active': True, 'name': 'Alex'}]}]
+    Uses pformat for logging any structured payloads during debug.
+    Only the level label and the message are colorized using the level's color.
+    All other components (time, name, function, line) remain uncolored so they
+    display using the terminal's default color.
     """
 
-    format_string: str = str(LOGURU_FORMAT)
+    # Minimal, uncolored metadata + level-colored label and message
+    # Example: 2025-01-01 12:34:56.789 | INFO     | module:function:123 - message
+    format_string: str = (
+        "{time:YYYY-MM-DD HH:mm:ss.SSS} | "
+        "<level>{level: <8}</level> | "
+        "{name}:{function}:{line} - "
+        "<level>{message}</level>"
+    )
     if record["extra"].get("payload") is not None:
         record["extra"]["payload"] = pformat(
             record["extra"]["payload"], indent=4, compact=True, width=88
@@ -112,6 +114,13 @@ def init_logging():
 
     # set logs output, level and format
     logger.configure(
-        handlers=[{"sink": sys.stdout, "level": log_level, "format": format_record}]
+        handlers=[
+            {
+                "sink": sys.stdout,
+                "level": log_level,
+                "format": format_record,
+                "colorize": True,  # ensure color is applied to TTY
+            }
+        ]
     )
     logger.add("app.log", level=log_level)

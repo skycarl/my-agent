@@ -170,7 +170,6 @@ async def create_agent_response(request: AgentRequest):
         Simple success confirmation
     """
     try:
-
         conversation_manager_instance = conversation_manager.get_conversation_manager()
 
         # Extract user message from request
@@ -217,7 +216,7 @@ async def create_agent_response(request: AgentRequest):
             raise HTTPException(
                 status_code=500,
                 detail="OpenAI API key is not configured. Please set the OPENAI_API_KEY environment variable.",
-            )        
+            )
 
         # Run the agent workflow using the Orchestrator
         logger.debug("Running agent workflow with Orchestrator")
@@ -247,7 +246,10 @@ async def create_agent_response(request: AgentRequest):
             try:
                 target_user_id = config.authorized_user_id
                 if target_user_id:
-                    success, message_id = await telegram_client.telegram_client.send_message(
+                    (
+                        success,
+                        message_id,
+                    ) = await telegram_client.telegram_client.send_message(
                         user_id=target_user_id,
                         message=response_message,
                         parse_mode="HTML",
@@ -290,7 +292,6 @@ async def create_agent_response(request: AgentRequest):
 
         # Send error message directly to user via Telegram
         try:
-
             target_user_id = config.authorized_user_id
             if target_user_id:
                 error_message = (
@@ -379,7 +380,7 @@ async def process_alert(request: AlertRequest):
             agent_metadata.processing_time_ms = int(processing_time)
             agent_metadata.primary_agent = (
                 "Orchestrator"  # Could be updated if we can detect handoffs
-            )            
+            )
 
             alert_processing_result = await agent_response_handler.AgentResponseHandler.process_alert_response(
                 response=result.final_output, alert_id=request.uid

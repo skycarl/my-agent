@@ -130,5 +130,3 @@ Important:
         f"Scheduler agent created with model '{agent_model}' and the add_scheduled_task tool"
     )
     return scheduler
-
-
