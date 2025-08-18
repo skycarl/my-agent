@@ -88,10 +88,6 @@ class EmailMonitorService:
     ) -> None:
         """Process emails for a specific sink configuration."""
         try:
-            logger.debug(
-                f"Checking for emails from pattern: {sink_config.sender_pattern}"
-            )
-
             # Get unread messages matching the sender pattern
             messages = email_client.get_unread_messages_from_sender(
                 sink_config.sender_pattern

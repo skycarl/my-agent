@@ -8,6 +8,7 @@ to the application's /agent_response endpoint.
 from agents import Agent, function_tool
 from loguru import logger
 from app.core.settings import config
+from app.agents.scheduler.manage_tools import list_scheduled_tasks, delete_scheduled_task
 
 
 @function_tool
@@ -106,11 +107,17 @@ Task requirements:
 - Only schedule calls to api_endpoint="/agent_response".
 - For typical reminders, set api_method="POST" and api_payload={"input": "<the user's instruction>"}.
 
+Listing and deletion:
+- Use list_scheduled_tasks to show existing tasks by their human-friendly names.
+- To delete a task, ask the user for the task name and call delete_scheduled_task(name). If multiple tasks share a similar name, ask for clarification.
+
 Clarifying questions:
 - If any required detail (date, time, or recurrence pattern) is missing or ambiguous, ask a brief, direct clarifying question. Continue asking follow-ups until you have what you need.
 
 Tool usage and responses:
 - Use add_scheduled_task to create the schedule.
+- Use list_scheduled_tasks to display current schedules.
+- Use delete_scheduled_task to remove a schedule by name.
 - After a successful tool call (success=true), reply with a concise confirmation of what was scheduled and when it will run. Do not include any task_id.
   Examples:
   - "Scheduled for Sep 1 at 9:00 AM."
@@ -122,7 +129,7 @@ Important:
 - Only schedule /agent_response calls. Do not schedule other endpoints.
 - If the user's instruction is immediately schedulable, schedule directly without unnecessary questions.
 """,
-        tools=[schedule_task],
+        tools=[schedule_task, list_scheduled_tasks, delete_scheduled_task],
         model=agent_model,
     )
 

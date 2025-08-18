@@ -25,15 +25,10 @@ class EmailClient:
     def connect(self) -> None:
         """Connect to the IMAP server and login."""
         try:
-            logger.debug(f"Connecting to IMAP server: {self.server}")
-
             # Create SSL context with proper verification
             ssl_context = ssl.create_default_context()
-
             self.client = IMAPClient(self.server, ssl=True, ssl_context=ssl_context)
             self.client.login(self.email, self.password)
-
-            logger.info(f"Successfully connected to {self.server} as {self.email}")
 
         except Exception as e:
             logger.error(f"Failed to connect to IMAP server: {e}")
@@ -44,7 +39,6 @@ class EmailClient:
         if self.client:
             try:
                 self.client.logout()
-                logger.debug("Disconnected from IMAP server")
             except Exception as e:
                 logger.warning(f"Error during IMAP disconnect: {e}")
             finally:
@@ -74,7 +68,6 @@ class EmailClient:
             message_ids = self.client.search(search_criteria)
 
             if not message_ids:
-                logger.debug(f"No unread messages found from {sender_pattern}")
                 return []
 
             logger.info(

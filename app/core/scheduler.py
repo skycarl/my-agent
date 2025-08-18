@@ -106,7 +106,6 @@ class SchedulerService:
             )
             return True
 
-        logger.debug(f"Config file unchanged: hash={current_hash[:8]}...")
         return False
 
     def _clear_existing_jobs(self) -> None:
@@ -313,12 +312,9 @@ class SchedulerService:
     def _config_reload_check(self) -> None:
         """Periodic check for configuration file changes."""
         try:
-            logger.debug("Checking for configuration file changes...")
             if self._should_reload_config():
                 logger.info("Configuration file changed, reloading...")
                 self.reload_configuration()
-            else:
-                logger.debug("No configuration changes detected")
         except Exception as e:
             logger.error(f"Error during configuration reload check: {e}")
 

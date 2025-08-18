@@ -16,7 +16,11 @@ from app.core.auth import verify_token
 from app.core import conversation_manager
 from app.core.scheduler import scheduler_service
 from app.core.settings import config
-from app.core.task_store import append_task_to_config
+from app.core.task_store import (
+    append_task_to_config,
+    list_tasks_from_config,
+    delete_task_by_id,
+)
 from app.core import telegram_client
 from app.core.timezone_utils import now_local
 from app.models.tasks import (
@@ -100,7 +104,7 @@ def get_models():
 
 
 # -----------------------
-# Tasks Management (Add)
+# Tasks Management
 # -----------------------
 
 
@@ -152,6 +156,87 @@ async def add_task(request: NewTaskRequest):
     except Exception as e:
         logger.error(f"Error adding new task: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to add task: {e}")
+
+
+class ListTasksResponse(BaseModel):
+    success: bool
+    tasks: list[dict]
+    message: str
+
+
+@router.get(
+    "/tasks",
+    status_code=200,
+    dependencies=[Depends(verify_token)],
+)
+async def list_tasks(only_enabled: bool = False, name_filter: Optional[str] = None):
+    """List scheduled tasks from configuration storage."""
+    try:
+        tasks = list_tasks_from_config(only_enabled=only_enabled, name_filter=name_filter)
+
+        # Minimize sensitive data: omit headers if present
+        sanitized: list[dict] = []
+        for t in tasks:
+            t_copy = dict(t)
+            api = t_copy.get("api_call")
+            if isinstance(api, dict) and "headers" in api:
+                api = dict(api)
+                api.pop("headers", None)
+                t_copy["api_call"] = api
+            sanitized.append(t_copy)
+
+        return JSONResponse(
+            content=jsonable_encoder(ListTasksResponse(success=True, tasks=sanitized, message="OK"))
+        )
+    except Exception as e:
+        logger.error(f"Error listing tasks: {e}")
+        return JSONResponse(
+            status_code=500,
+            content=jsonable_encoder(
+                ListTasksResponse(success=False, tasks=[], message=f"Failed to list tasks: {e}")
+            ),
+        )
+
+
+class DeleteTaskResponse(BaseModel):
+    success: bool
+    task_id: str
+    message: str
+
+
+@router.delete(
+    "/tasks/{task_id}",
+    status_code=200,
+    dependencies=[Depends(verify_token)],
+)
+async def delete_task(task_id: str):
+    """Delete a scheduled task by ID and reload the scheduler."""
+    try:
+        removed = delete_task_by_id(task_id)
+        if not removed:
+            return JSONResponse(
+                status_code=404,
+                content=jsonable_encoder(
+                    DeleteTaskResponse(success=False, task_id=task_id, message="Task not found")
+                ),
+            )
+
+        scheduler_service.reload_configuration()
+        return JSONResponse(
+            content=jsonable_encoder(
+                DeleteTaskResponse(
+                    success=True, task_id=task_id, message="Task deleted and scheduler reloaded"
+                )
+            )
+        )
+    except Exception as e:
+        logger.error(f"Error deleting task {task_id}: {e}")
+        return JSONResponse(
+            status_code=500,
+            content=jsonable_encoder(
+                DeleteTaskResponse(success=False, task_id=task_id, message=f"Failed to delete task: {e}")
+            ),
+        )
 
 
 @router.post("/agent_response", status_code=200, dependencies=[Depends(verify_token)])
