@@ -1,92 +1,74 @@
 <h1 align="center"> 
-FastAPI Boilerplate
+My Agent
 </h1>
 
 <h2 align="center">
-Simple FastAPI-based project template
 </h2>
 
-# 💎 Features
+# Overview
 
-✅ Production ready FastAPI application\
-✅ Clean architecture with clear separation of concerns\
-✅ Configuration management with pydantic-settings\
-✅ Async FastAPI endpoints\
-✅ Loguru logging mechanism\
-✅ Unit tests with Pytest\
-✅ `uv` dependency management for fast and reliable builds\
-✅ Telegram bot integration with OpenAI responses\
-✅ Docker-compose setup for multi-service deployment
+The goal of this project is to:
 
+1. Create an agent that can help me with my daily life
+2. Play with the OpenAI Agents SDK
+3. Have fun building it! 
 
-# ⚒️ Techologies Used
+## Usage
 
-- Pydantic: For typing & serialization
-- Pytests: For TDD or Unit Testing
-- `uv`: Python dependency management packaging made easy and fast
-- Docker & docker-compose: for smoother deployment
-- Loguru: Easiest logging ever done
-- Pydantic Settings: Type-safe environment variable management with automatic validation
+There are 4 main agents:
+- The `Orchestrator` agent
+   - This agent is the main entry point and decides which specialized agent should handle each request through agent handoffs.
+- The `Gardener` agent
+   - This agent is responsible for managing my garden.
+- The `Commute` agent
+   - This agent is responsible for managing my commute.
+- The `Scheduler` agent
+   - This agent is responsible for scheduling tasks (e.g., as recurring or one-time prompts)
 
-# 🚀 Setup 🕙
-Make sure you have docker and docker-compose installed [docker installation guide](https://docs.docker.com/compose/install/)
+### Gardener
+
+The `Gardener` agent manages your garden data: it helps you track plants, record harvests, and view simple statistics about my yields. It is backed by MCP tools that read and write to the garden store, so answers and actions are grounded in structured data rather than guesswork. It uses the tools `get_plants`, `add_plant`, `get_produce_counts`, and `add_produce` to add/fetch records to/from persistent storage.
+
+### Commute
+
+The `Commute` agent focuses on commute-related information for the Seattle area. It uses a `get_monorail_hours` tool to fetch the current operating hours of the Seattle monorail from its website. The Commute agent also processes transportation alerts via email from Sound Transit. It determines whether an alert is relevant (e.g., delays, service disruptions, weather impacts) and crafts a short notification only when I should be notified, ignoring non-commute items like elevator or vending machine outages that don't impact my commute to reduce notification fatigue. 
+
+### Scheduler
+
+The `Scheduler` agent converts natural-language instructions into scheduled tasks. It exclusively schedules API calls to `/agent_response`, enabling reminders and recurring prompts to be triggered automatically without manual follow-up. It supports three schedule types—`cron`, `interval`, and one-time `date`—and can also list and delete tasks via `list_scheduled_tasks` and `delete_scheduled_task`.
+
+# Setup
+
+## Prerequisites
+
+- Docker
+- Docker Compose
+- Python 3.13+
+- `uv`
 
 ## Configuration
-This project uses **pydantic-settings** for environment variable management for type safety and validation.
+This project uses `pydantic-settings` for settings management.
 
-## Step 1
-Create **.env** file in root folder fastapi-boilerplate/.env
+Create **.env** file in root project folder; use the provided `env.example` file as a template. The application settings are managed by `app/core/settings.py` which uses Pydantic BaseSettings for configuration.
 
-The application settings are managed by `app/core/settings.py` which uses Pydantic BaseSettings for type-safe configuration.
+# Telegram Bot integration
 
-You can use the provided `env.example` file as a template:
-
-```
-# Authentication
-X_TOKEN=123
-
-# OpenAI Configuration
-# Set your OpenAI API key here (leave empty if not using OpenAI services)
-OPENAI_API_KEY=your-openai-api-key-here
-
-# Telegram Bot Configuration
-# Get your bot token from @BotFather on Telegram
-TELEGRAM_BOT_TOKEN=your-bot-token-here
-# URL of the FastAPI app (for bot to communicate with API)
-APP_URL=http://localhost:8000
-```
-
-### Available Settings:
-- `X_TOKEN`: API authentication token (default: "12345678910")
-- `OPENAI_API_KEY`: OpenAI API key for AI services (default: empty string)
-- `TELEGRAM_BOT_TOKEN`: Telegram bot token from @BotFather (default: empty string)
-- `APP_URL`: URL of the FastAPI app for internal communication (default: "http://localhost:8000")
-
-## Step 2
-```
-uv sync
-uv run uvicorn app.main:app --reload
-```
-
-# 🤖 Telegram Bot Integration
-
-This project includes a Telegram bot that integrates with the FastAPI backend to provide AI-powered responses.
+This project uses a Telegram bot as the conversational interface.
 
 ## Setting Up the Telegram Bot
 
 1. **Create a Telegram Bot:**
    - Message [@BotFather](https://t.me/BotFather) on Telegram
    - Use `/newbot` command to create a new bot
-   - Follow the instructions and get your bot token
-   - Add the token to your `.env` file as `TELEGRAM_BOT_TOKEN`
+   - Follow the instructions and get the bot token
+   - Add the token to `.env` file as `TELEGRAM_BOT_TOKEN`
 
 2. **Configure OpenAI:**
-   - Get your OpenAI API key from [OpenAI Platform](https://platform.openai.com/api-keys)
-   - Add it to your `.env` file as `OPENAI_API_KEY`
+   - Get an OpenAI API key from [OpenAI Platform](https://platform.openai.com/api-keys)
+   - Add it to `.env` file as `OPENAI_API_KEY`
 
-## Running the Services
+## Running services
 
-### Option 1: Using Docker Compose (Recommended)
 ```bash
 # Start both API and Telegram bot services
 make docker-up
@@ -94,36 +76,6 @@ make docker-up
 # Stop services
 make docker-down
 ```
-
-### Option 2: Running Locally
-```bash
-# Terminal 1: Start the FastAPI server
-make run
-
-# Terminal 2: Start the Telegram bot
-make run-bot
-```
-
-## Bot Features
-
-- **AI-powered responses**: The bot queries the FastAPI `/responses` endpoint to generate AI responses
-- **MCP Tools Integration**: Automatically includes garden management tools from the MCP server
-- **Command support**: 
-  - `/start` - Initialize the bot
-  - `/help` - Show available commands
-- **Message handling**: Send any text message to get an AI response
-- **Garden Management**: Ask about plants, add new plants, record harvests, and check produce counts
-- **Error handling**: Graceful error handling with user-friendly messages
-- **Typing indicators**: Shows typing while processing requests
-
-## Bot Architecture
-
-The Telegram bot is built using:
-- `python-telegram-bot` library for Telegram API integration
-- Polling mode for receiving messages
-- Pydantic models for type validation
-- Async/await for non-blocking operations
-- Comprehensive error handling and logging
 
 ## MCP Integration
 
@@ -134,64 +86,22 @@ The application includes a Model Context Protocol (MCP) integration that automat
 - **get_produce_counts**: Get harvest statistics for a specific plant
 - **add_produce**: Record a new harvest for a plant
 
-### MCP Configuration
 
-The MCP integration can be configured via environment variables:
-
-```bash
-# Enable or disable MCP tools (default: true)
-ENABLE_MCP_TOOLS=true
-
-# MCP server URL (default: http://localhost:8001)
-MCP_SERVER_URL=http://localhost:8001
-```
-
-### Example Usage
-
-Ask the bot questions like:
-- "What plants do I have in my garden?"
-- "Add tomatoes to my garden"
-- "Record a harvest of 5 pounds of tomatoes"
-- "How many harvests have I recorded for peas?"
-
-The AI will automatically use the appropriate MCP tools to answer your questions and perform actions.
-
-# 🎉 Done!
-
-- Swagger docs on `localhost:8000/docs`
-- Interactive API documentation with simple authentication
-- Telegram bot ready to chat with AI responses
-
-# 🧹 Running Pre-commit Hooks Manually
-
-To manually run pre-commit hooks:
-
-1. Install the hooks defined in `.pre-commit-config.yaml`:
-   ```sh
-   pre-commit install
-   ```
-2. Run all pre-commit hooks on all files:
-   ```sh
-   pre-commit run --all-files
-   ```
-
-You can also run specific hooks or run them only on staged files. See the [pre-commit documentation](https://pre-commit.com/) for more options.
 
 # Ideas
 
 - [x] Sink for alert message subscriptions
 - [x] Task scheduler for running scheduled tasks
 - [ ] Calendar integration to integrate with text sinks
-- [ ] Vehicle repair and maintenance tracking: embed vehicle repair records to allow searching by service (searching tools behind MCP). Also have an MCP tool to add a new service, possibly from a photo of the repair receipt.
 - [ ] Back up local storage to S3 
 - [ ] Integrate with Obsidian notes 
-   - [ ] Send a recipe link and it grabs the recipe and saves it to my Obsidian notes 
+   - [ ] Send a recipe link --> grab the recipe --> save it to my Obsidian notes recipe section 
 - [ ] Fetch current status of alerts from Sound Transit
 - [ ] Persist message history (to include alert history) on disk rather than in memory for consistent conversation history
    - [ ] Handle duplicated alerts by checking conversation history, and only send a new alert if there is new information 
-- [ ] Memory for keeping track of when the user is going into the office, so we can ignore commute alerts when they are not in the office
+- [ ] Memory for keeping track of when the user is and isn't commuting, so the agents can ignore commute alerts when they are not commuting
 - [ ] Ability to update the scheduled tasks file via conversation
 - [ ] BAML for prompts and output parsing
 - [x] Fix agent default models
 - [ ] Analyze firewall alerts from pfSense
-- [ ] look at async logic for the agent_response endpoint; how is this working for multiple concurrent requests? will this work?
+- [ ] Review async logic for the agent_response endpoint; how is this working for multiple concurrent requests?
