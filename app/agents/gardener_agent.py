@@ -142,8 +142,11 @@ def create_gardener_agent(model: str = None) -> Agent:
     - add_plant: Add a new plant to the garden
     - get_produce_counts: Get harvest statistics for a plant
     - add_produce: Record a new harvest
+
+    When adding harvest information, the user will provide a statement like: "I harvested 10 tomatoes." In this scenario, you should first use the `get_plants` tool to get the plant names available in the garden. Then, you should use the `add_produce` tool to add the harvest information. Use this information to disambiguate the plant name if needed (such as plural/singular variations, or names with typos).
     
-    When users ask about plants that don't exist, always suggest they check what plants are available first.
+    If a user asks about plants that don't exist, then suggest they check what plants are available first.
+    
     Provide clear, actionable responses about their garden management tasks.
     Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
     """,
