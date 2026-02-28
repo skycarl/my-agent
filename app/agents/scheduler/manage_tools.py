@@ -49,7 +49,14 @@ async def list_scheduled_tasks(
             elif s_type == "interval":
                 schedule_desc = f"every {schedule.get('interval_seconds', '?')}s"
             elif s_type == "date":
-                schedule_desc = f"one-time: {schedule.get('run_at', '?')}"
+                raw = schedule.get("run_at", "")
+                try:
+                    from datetime import datetime
+
+                    dt = datetime.fromisoformat(raw)
+                    schedule_desc = f"one-time: {dt.strftime('%b %-d, %Y at %-I:%M %p')}"
+                except Exception:
+                    schedule_desc = f"one-time: {raw or '?'}"
             else:
                 schedule_desc = s_type
 
