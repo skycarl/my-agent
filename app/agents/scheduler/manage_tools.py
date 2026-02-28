@@ -54,7 +54,9 @@ async def list_scheduled_tasks(
                     from datetime import datetime
 
                     dt = datetime.fromisoformat(raw)
-                    schedule_desc = f"one-time: {dt.strftime('%b %-d, %Y at %-I:%M %p')}"
+                    schedule_desc = (
+                        f"one-time: {dt.strftime('%b %-d, %Y at %-I:%M %p')}"
+                    )
                 except Exception:
                     schedule_desc = f"one-time: {raw or '?'}"
             else:

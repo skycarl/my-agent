@@ -4,6 +4,7 @@ Task scheduler service with APScheduler integration and hot reload functionality
 
 import json
 import hashlib
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -159,12 +160,31 @@ class SchedulerService:
                     )
                     return False
 
+                # Standard cron: 0=Sun,1=Mon,...,6=Sat (and 7=Sun)
+                # APScheduler:   0=Mon,1=Tue,...,6=Sun
+                # Remap by converting to 3-letter day names which both agree on.
+                _CRON_DOW_TO_NAME = {
+                    "0": "sun",
+                    "1": "mon",
+                    "2": "tue",
+                    "3": "wed",
+                    "4": "thu",
+                    "5": "fri",
+                    "6": "sat",
+                    "7": "sun",
+                }
+                raw_dow = cron_parts[4]
+                # Replace bare digits with names, preserving commas/ranges/wildcards
+                remapped_dow = re.sub(
+                    r"\b(\d)\b", lambda m: _CRON_DOW_TO_NAME[m.group(1)], raw_dow
+                )
+
                 trigger = CronTrigger(
                     minute=cron_parts[0],
                     hour=cron_parts[1],
                     day=cron_parts[2],
                     month=cron_parts[3],
-                    day_of_week=cron_parts[4],
+                    day_of_week=remapped_dow,
                     timezone=config.scheduler_timezone,
                 )
 
