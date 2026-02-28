@@ -21,6 +21,8 @@ from app.core.task_store import (
     list_tasks_from_config,
     delete_task_by_id,
 )
+from app.core.task_manager import ALLOWED_TASK_ENDPOINTS
+from app.models.tasks import TaskSchedule, APICallConfig
 from app.core import telegram_client
 from app.core.timezone_utils import now_local
 from app.models.tasks import (
@@ -143,6 +145,36 @@ async def add_task(request: NewTaskRequest):
     try:
         # Convert request to dict, filter out None values
         task_data = {k: v for k, v in request.model_dump().items() if v is not None}
+
+        # Validate schedule against Pydantic model before persisting
+        try:
+            TaskSchedule(**task_data.get("schedule", {}))
+        except (ValueError, Exception) as e:
+            raise HTTPException(status_code=422, detail=f"Invalid schedule: {e}")
+
+        # Validate api_call and enforce endpoint allowlist
+        if task_data.get("api_call"):
+            try:
+                api_call = APICallConfig(**task_data["api_call"])
+            except (ValueError, Exception) as e:
+                raise HTTPException(status_code=422, detail=f"Invalid api_call: {e}")
+            normalized = "/" + api_call.endpoint.lstrip("/")
+            if normalized not in ALLOWED_TASK_ENDPOINTS:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Endpoint not allowed: {api_call.endpoint}. Allowed: {', '.join(sorted(ALLOWED_TASK_ENDPOINTS))}",
+                )
+
+        # Validate cron expression if applicable
+        if task_data.get("schedule", {}).get("type") == "cron":
+            from croniter import croniter
+
+            expr = task_data["schedule"].get("expression", "")
+            if not croniter.is_valid(expr):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid cron expression: {expr}",
+                )
 
         # Append to config and reload
         task_id = append_task_to_config(task_data)
