@@ -36,6 +36,16 @@ class Config(BaseSettings):
         default="gpt-5.2", description="Default OpenAI model to use for agents"
     )
 
+    # Per-agent reasoning effort (valid: none, low, medium, high, xhigh)
+    agent_reasoning_effort: dict[str, str] = Field(
+        default={
+            "commute": "medium",
+            "scheduler": "medium",
+            "alert_processor": "medium",
+        },
+        description="Reasoning effort per agent. Valid: none, low, medium, high, xhigh",
+    )
+
     # OpenAI API timeout and retry configuration
     openai_timeout: int = Field(
         default=30, description="OpenAI API request timeout in seconds"
@@ -170,6 +180,17 @@ class Config(BaseSettings):
                 return (init_settings,)
 
         return TestConfig(**kwargs)
+
+
+def get_model_settings_for_agent(agent_name: str):
+    """Get ModelSettings with reasoning effort for a specific agent, or None for SDK defaults."""
+    effort = config.agent_reasoning_effort.get(agent_name)
+    if effort is None:
+        return None
+    from agents import ModelSettings
+    from openai.types import Reasoning
+
+    return ModelSettings(reasoning=Reasoning(effort=effort), verbosity="low")
 
 
 # Global config instance

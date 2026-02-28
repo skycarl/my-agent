@@ -20,7 +20,7 @@ from app.agents.commute.preferences_service import (
     add_commute_override as svc_add_commute_override,
     remove_commute_override as svc_remove_commute_override,
 )
-from app.core.settings import config
+from app.core.settings import config, get_model_settings_for_agent
 from app.core.timezone_utils import now_local
 
 
@@ -102,10 +102,12 @@ def create_commute_agent(model: str = None) -> Agent:
         Configured Commute Assistant agent
     """
     agent_model = model or config.default_model
+    agent_model_settings = get_model_settings_for_agent("commute")
 
     commute = Agent(
         name="Commute Assistant",
         handoff_description="Handles commute and transportation queries: Seattle Monorail hours, schedules, recent transit alerts, and commute preferences/overrides.",
+        **({"model_settings": agent_model_settings} if agent_model_settings else {}),
         instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
 
 You are the Commute Assistant - a specialized agent for handling transportation and commute-related queries.

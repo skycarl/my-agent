@@ -13,6 +13,7 @@ from app.agents.alert_processor_agent import (
 from app.agents.gardener_agent import create_gardener_agent
 from app.agents.commute_agent import create_commute_agent
 from app.agents.orchestrator_agent import create_orchestrator_agent
+from app.agents.scheduler_agent import create_scheduler_agent
 
 
 class TestAgentConfiguration:
@@ -308,3 +309,38 @@ class TestAlertProcessorAgentConfiguration:
         assert "User Commute Context" in agent.instructions
         assert "Schedule-Aware Filtering" in agent.instructions
         assert "Thursday: Office" in agent.instructions
+
+
+class TestAgentReasoningEffort:
+    """Test per-agent reasoning effort configuration."""
+
+    def test_commute_agent_has_reasoning_effort(self):
+        """Commute agent should have medium reasoning effort."""
+        agent = create_commute_agent()
+        assert agent.model_settings is not None
+        assert agent.model_settings.reasoning is not None
+        assert agent.model_settings.reasoning.effort == "medium"
+
+    def test_scheduler_agent_has_reasoning_effort(self):
+        """Scheduler agent should have medium reasoning effort."""
+        agent = create_scheduler_agent()
+        assert agent.model_settings is not None
+        assert agent.model_settings.reasoning is not None
+        assert agent.model_settings.reasoning.effort == "medium"
+
+    def test_alert_processor_agent_has_reasoning_effort(self):
+        """Alert processor agent should have medium reasoning effort."""
+        agent = create_alert_processor_agent()
+        assert agent.model_settings is not None
+        assert agent.model_settings.reasoning is not None
+        assert agent.model_settings.reasoning.effort == "medium"
+
+    def test_gardener_agent_uses_sdk_defaults(self):
+        """Gardener agent should not have custom reasoning effort (uses SDK defaults)."""
+        agent = create_gardener_agent()
+        assert agent.model_settings.reasoning is None
+
+    def test_orchestrator_agent_uses_sdk_defaults(self):
+        """Orchestrator agent should not have custom reasoning effort (uses SDK defaults)."""
+        agent = create_orchestrator_agent()
+        assert agent.model_settings.reasoning is None

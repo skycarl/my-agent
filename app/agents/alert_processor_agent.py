@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from app.agents.commute.commute_service import (
     get_recent_alerts as svc_get_recent_alerts,
 )
-from app.core.settings import config
+from app.core.settings import config, get_model_settings_for_agent
 from app.core.timezone_utils import now_local
 
 
@@ -59,6 +59,7 @@ def create_alert_processor_agent(
         Configured Alert Processor agent with output_type=AlertDecision
     """
     agent_model = model or config.default_model
+    agent_model_settings = get_model_settings_for_agent("alert_processor")
 
     schedule_section = ""
     if commute_context:
@@ -75,6 +76,7 @@ def create_alert_processor_agent(
 
     alert_processor = Agent(
         name="Alert Processor",
+        **({"model_settings": agent_model_settings} if agent_model_settings else {}),
         instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
 
 You are the Alert Processor - a specialized agent for processing transportation alerts and deciding whether to notify the user.

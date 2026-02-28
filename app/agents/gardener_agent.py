@@ -17,7 +17,7 @@ from app.agents.gardener.garden_service import (
     get_produce_counts as svc_get_produce_counts,
     add_produce as svc_add_produce,
 )
-from app.core.settings import config
+from app.core.settings import config, get_model_settings_for_agent
 
 
 @function_tool
@@ -76,10 +76,12 @@ def create_gardener_agent(model: str = None) -> Agent:
         Configured Gardener agent
     """
     agent_model = model or config.default_model
+    agent_model_settings = get_model_settings_for_agent("gardener")
 
     gardener = Agent(
         name="Gardener",
         handoff_description="Handles garden management: tracking plants, recording harvests, and viewing garden statistics.",
+        **({"model_settings": agent_model_settings} if agent_model_settings else {}),
         instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
 
 You are a specialized garden management assistant. You help users track plants, record harvests, view garden statistics, and add new plants.

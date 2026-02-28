@@ -8,7 +8,7 @@ to the application's /agent_response endpoint.
 from agents import Agent, function_tool
 from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
 from loguru import logger
-from app.core.settings import config
+from app.core.settings import config, get_model_settings_for_agent
 from app.agents.scheduler.manage_tools import (
     list_scheduled_tasks,
     delete_scheduled_task,
@@ -115,10 +115,12 @@ def create_scheduler_agent(model: str = None) -> Agent:
         Configured Scheduler agent
     """
     agent_model = model or config.default_model
+    agent_model_settings = get_model_settings_for_agent("scheduler")
 
     scheduler = Agent(
         name="Scheduler",
         handoff_description="Converts natural-language scheduling requests into scheduled tasks (cron, interval, or one-time). Also lists and deletes existing schedules.",
+        **({"model_settings": agent_model_settings} if agent_model_settings else {}),
         instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
 
 You are the Scheduler. You convert natural-language instructions into scheduled tasks using the schedule_task tool.

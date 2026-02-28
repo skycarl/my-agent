@@ -42,6 +42,26 @@ def test_config_defaults():
     assert isinstance(config.openai_api_key, str)
 
 
+def test_config_default_agent_reasoning_effort():
+    """Test that agent_reasoning_effort has correct defaults."""
+    config = Config.create_test_config()
+
+    assert config.agent_reasoning_effort == {
+        "commute": "medium",
+        "scheduler": "medium",
+        "alert_processor": "medium",
+    }
+
+
+def test_config_custom_agent_reasoning_effort():
+    """Test that agent_reasoning_effort can be overridden."""
+    config = Config.create_test_config(
+        agent_reasoning_effort={"commute": "high", "gardener": "low"}
+    )
+
+    assert config.agent_reasoning_effort == {"commute": "high", "gardener": "low"}
+
+
 def test_config_from_env_vars():
     """Test that config properly loads from environment variables."""
     # Test with environment variables set
