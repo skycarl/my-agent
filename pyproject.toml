@@ -1,6 +1,6 @@
 [project]
 name = "my-agent"
-version = "0.10.0"
+version = "0.10.1"
 description = "My agent"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -28,6 +28,13 @@ dependencies = [
     "uvicorn>=0.34.3",
     "types-requests>=2.32.4.20250611",
     "types-pytz>=2025.2.0.20250516",
+    # Transitive dependency security patches
+    "cryptography>=46.0.5",
+    "python-multipart>=0.0.22",
+    "virtualenv>=20.36.1",
+    "filelock>=3.20.3",
+    "urllib3>=2.6.3",
+    "starlette>=0.49.1",
 ]
 
 [tool.mypy]
