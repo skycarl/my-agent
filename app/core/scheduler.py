@@ -394,6 +394,19 @@ class SchedulerService:
                 max_instances=1,
             )
 
+            # Schedule daily cleanup of old commute alerts (30-day retention)
+            from app.agents.commute.commute_service import cleanup_old_alerts
+
+            self.scheduler.add_job(
+                func=cleanup_old_alerts,
+                trigger=CronTrigger(
+                    hour=1, minute=0, timezone=config.scheduler_timezone
+                ),
+                id="commute_alerts_cleanup",
+                name="Cleanup Old Commute Alerts",
+                max_instances=1,
+            )
+
             # Start the scheduler
             self.scheduler.start()
             self.running = True

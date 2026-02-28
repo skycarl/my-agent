@@ -574,6 +574,9 @@ async def process_alert(request: AlertRequest):
                 detail="OpenAI API key is not configured. Please set the OPENAI_API_KEY environment variable.",
             )
 
+        # Track agent decision for structured storage on the alert record
+        decision = None
+
         # Inject commute context for schedule-aware filtering
         from app.agents.commute.preferences_service import get_full_commute_context
 
@@ -663,13 +666,15 @@ async def process_alert(request: AlertRequest):
             "received_date": request.date.isoformat(),
             "stored_date": now_local().isoformat(),
             "alert_type": request.alert_type,
+            "notify_user": decision.notify_user if decision else False,
+            "message_content": decision.message_content if decision else "",
             "agent_processing": agent_metadata.model_dump(),
         }
 
-        # Add to alerts list and cap at 500 most recent
+        # Add to alerts list and cap at 200 most recent
         alerts.append(alert_record)
-        if len(alerts) > 500:
-            alerts = alerts[-500:]
+        if len(alerts) > 200:
+            alerts = alerts[-200:]
 
         # Write back to file with proper error handling
         try:

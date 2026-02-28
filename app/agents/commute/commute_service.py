@@ -6,6 +6,7 @@ Exposes plain functions that agents call directly via @function_tool.
 
 import json
 import re
+from datetime import timedelta
 from pathlib import Path
 from typing import List
 
@@ -54,7 +55,35 @@ def get_monorail_hours() -> MonorailHoursResponse:
     )
 
 
-def get_recent_alerts(limit: int = 5) -> RecentAlertsResponse:
+def _parse_legacy_decision(agent_response: str) -> tuple[bool, str]:
+    """Extract notify_user/message_content from old alerts that lack top-level fields."""
+    notify_user = False
+    message_content = ""
+
+    # Try <json> tags (legacy format)
+    match = re.search(r"<json>(.*?)</json>", agent_response, re.DOTALL)
+    if match:
+        try:
+            decision = json.loads(match.group(1).strip())
+            notify_user = decision.get("notify_user", False)
+            message_content = decision.get("message_content", "")
+        except json.JSONDecodeError:
+            pass
+    else:
+        # Structured output format: notify_user=True/False
+        nu_match = re.search(r"notify_user=(True|False)", agent_response)
+        if nu_match:
+            notify_user = nu_match.group(1) == "True"
+        mc_match = re.search(
+            r"message_content='(.*?)'(?:\s|$)", agent_response, re.DOTALL
+        )
+        if mc_match:
+            message_content = mc_match.group(1)
+
+    return notify_user, message_content
+
+
+def get_recent_alerts(limit: int = 20) -> RecentAlertsResponse:
     """Get recent commute alerts that were processed by the system."""
     if not ALERTS_FILE.exists():
         return RecentAlertsResponse(alerts=[], total_stored=0)
@@ -70,31 +99,14 @@ def get_recent_alerts(limit: int = 5) -> RecentAlertsResponse:
     # Parse agent decisions and only return alerts the agent deemed relevant
     summaries = []
     for alert in all_alerts:
-        agent_processing = alert.get("agent_processing", {})
-        agent_response = agent_processing.get("agent_response", "")
-
-        notify_user = False
-        message_content = ""
-        if agent_response:
-            # Try <json> tags (legacy format)
-            match = re.search(r"<json>(.*?)</json>", agent_response, re.DOTALL)
-            if match:
-                try:
-                    decision = json.loads(match.group(1).strip())
-                    notify_user = decision.get("notify_user", False)
-                    message_content = decision.get("message_content", "")
-                except json.JSONDecodeError:
-                    pass
-            else:
-                # Structured output format: notify_user=True/False
-                nu_match = re.search(r"notify_user=(True|False)", agent_response)
-                if nu_match:
-                    notify_user = nu_match.group(1) == "True"
-                mc_match = re.search(
-                    r"message_content='(.*?)'(?:\s|$)", agent_response, re.DOTALL
-                )
-                if mc_match:
-                    message_content = mc_match.group(1)
+        # Prefer structured top-level fields (written since this change)
+        if "notify_user" in alert:
+            notify_user = alert["notify_user"]
+            message_content = alert.get("message_content", "")
+        else:
+            # Fallback: regex-parse agent_response for old alerts
+            agent_response = alert.get("agent_processing", {}).get("agent_response", "")
+            notify_user, message_content = _parse_legacy_decision(agent_response or "")
 
         if not notify_user:
             continue
@@ -109,6 +121,26 @@ def get_recent_alerts(limit: int = 5) -> RecentAlertsResponse:
             )
         )
 
-    return RecentAlertsResponse(
-        alerts=summaries[-limit:], total_stored=total
-    )
+    return RecentAlertsResponse(alerts=summaries[-limit:], total_stored=total)
+
+
+def cleanup_old_alerts(retention_days: int = 30) -> int:
+    """Remove alerts older than retention_days. Returns count removed."""
+    if not ALERTS_FILE.exists():
+        return 0
+
+    try:
+        with open(ALERTS_FILE, "r", encoding="utf-8") as f:
+            alerts = json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        return 0
+
+    cutoff = (now_local() - timedelta(days=retention_days)).isoformat()
+    active = [a for a in alerts if a.get("stored_date", "") >= cutoff]
+    removed = len(alerts) - len(active)
+
+    if removed > 0:
+        with open(ALERTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(active, f, indent=2, ensure_ascii=False, default=str)
+
+    return removed
