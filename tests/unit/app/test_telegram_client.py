@@ -56,7 +56,7 @@ class TestMarkdownToTelegramHtml:
         """Test with output similar to what the screenshot showed."""
         text = (
             "You have 1 active commute override:\n\n"
-            "- **2026-02-28** — **commute_day** — \"Driving into downtown today\" "
+            '- **2026-02-28** — **commute_day** — "Driving into downtown today" '
             "(ID: **ce874964**)"
         )
         result = markdown_to_telegram_html(text)
