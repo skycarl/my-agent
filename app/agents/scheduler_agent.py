@@ -12,6 +12,7 @@ from app.core.settings import config
 from app.agents.scheduler.manage_tools import (
     list_scheduled_tasks,
     delete_scheduled_task,
+    toggle_scheduled_task,
 )
 
 
@@ -138,6 +139,7 @@ Schedule types:
 Listing and deletion:
 - list_scheduled_tasks to show existing tasks. Relay the tool output directly — do not reformat or add markdown.
 - delete_scheduled_task(name) to remove one. If ambiguous, ask for clarification.
+- toggle_scheduled_task(name) to enable or disable a task without deleting it.
 
 After a successful schedule, reply with a concise confirmation (e.g., "Scheduled every Tuesday at 7:30 PM."). On error, state the error briefly.
 
@@ -145,7 +147,12 @@ If any required detail is missing, ask a brief clarifying question. If immediate
 
 Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
 """,
-        tools=[schedule_task, list_scheduled_tasks, delete_scheduled_task],
+        tools=[
+            schedule_task,
+            list_scheduled_tasks,
+            delete_scheduled_task,
+            toggle_scheduled_task,
+        ],
         model=agent_model,
     )
 

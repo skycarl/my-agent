@@ -10,7 +10,11 @@ from agents import function_tool
 from loguru import logger
 
 from app.core.scheduler import scheduler_service
-from app.core.task_store import list_tasks_from_config, delete_task_by_id
+from app.core.task_store import (
+    list_tasks_from_config,
+    delete_task_by_id,
+    toggle_task_by_id,
+)
 
 
 @function_tool
@@ -104,4 +108,40 @@ async def delete_scheduled_task(name: str) -> str:
         return f"Deleted: {task.get('name')} [{task_id}]"
     except Exception as e:
         logger.error(f"Failed to delete scheduled task via tool: {e}")
+        return f"Error: {str(e)}"
+
+
+@function_tool
+async def toggle_scheduled_task(name: str) -> str:
+    """Enable or disable a scheduled task by its human-friendly name.
+
+    Toggles the task's enabled state (enabled → disabled, disabled → enabled).
+    """
+    try:
+        all_tasks = list_tasks_from_config()
+        exact_matches = [
+            t for t in all_tasks if str(t.get("name", "")).lower() == name.lower()
+        ]
+        candidates = exact_matches or [
+            t for t in all_tasks if name.lower() in str(t.get("name", "")).lower()
+        ]
+
+        if len(candidates) == 0:
+            return f"No task found with name '{name}'."
+        if len(candidates) > 1:
+            names = ", ".join([f"{t.get('name')} ({t.get('id')})" for t in candidates])
+            return f"Multiple tasks match name '{name}'. Candidates: {names}"
+
+        task = candidates[0]
+        task_id = str(task.get("id"))
+        new_state = toggle_task_by_id(task_id)
+        if new_state is None:
+            return f"Task not found: {task.get('name')} [{task_id}]"
+
+        scheduler_service.reload_configuration()
+        state_label = "enabled" if new_state else "disabled"
+        logger.info(f"Agent tool toggled scheduled task: {task_id} → {state_label}")
+        return f"{task.get('name')} is now {state_label}."
+    except Exception as e:
+        logger.error(f"Failed to toggle scheduled task via tool: {e}")
         return f"Error: {str(e)}"

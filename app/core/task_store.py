@@ -110,6 +110,28 @@ def list_tasks_from_config(
     return tasks
 
 
+def toggle_task_by_id(task_id: str) -> Optional[bool]:
+    """
+    Toggle a task's enabled state by its ID.
+
+    Returns the new enabled value, or None if the task was not found.
+    """
+    storage_file = Path(config.tasks_config_path)
+
+    with FileLock(get_config_lock_path()):
+        data = _read_storage_file()
+        for t in data.get("tasks", []):
+            if t.get("id") == task_id:
+                t["enabled"] = not t.get("enabled", True)
+                data["last_modified"] = now_local().isoformat()
+                storage_file.parent.mkdir(parents=True, exist_ok=True)
+                storage_file.write_text(
+                    json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
+                return t["enabled"]
+        return None
+
+
 def delete_task_by_id(task_id: str) -> bool:
     """
     Delete a task by its ID from the configuration storage.
