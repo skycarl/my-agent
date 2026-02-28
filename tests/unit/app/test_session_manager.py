@@ -6,6 +6,8 @@ import pytest
 from unittest.mock import patch
 from agents import SQLiteSession
 
+from app.core.session_manager import SafeSQLiteSession
+
 
 class TestSessionManager:
     """Test the session manager singleton."""
@@ -32,7 +34,8 @@ class TestSessionManager:
 
             session = get_session()
 
-            assert isinstance(session, SQLiteSession)
+            assert isinstance(session, SafeSQLiteSession)
+            assert isinstance(session, SQLiteSession)  # subclass of SQLiteSession
 
     def test_get_session_returns_singleton(self, tmp_path):
         """Same instance returned on repeated calls."""
@@ -104,6 +107,70 @@ class TestSessionManager:
 
             items = await session.get_items()
             assert len(items) == 3
+
+    @pytest.mark.asyncio
+    async def test_orphaned_function_call_outputs_stripped(self, tmp_path):
+        """Verify that orphaned function_call_output items are dropped after truncation."""
+        with patch("app.core.session_manager.config") as mock_config:
+            mock_config.storage_path = str(tmp_path)
+            mock_config.authorized_user_id = 12345
+            mock_config.max_conversation_history = 3
+
+            from app.core.session_manager import get_session
+
+            session = get_session()
+
+            # Simulate a conversation: function_call + output, then a user message.
+            # With limit=3, the function_call will be truncated but its output survives.
+            await session.add_items(
+                [
+                    {
+                        "type": "function_call",
+                        "call_id": "call_old",
+                        "name": "foo",
+                        "arguments": "{}",
+                    },
+                    {
+                        "type": "function_call_output",
+                        "call_id": "call_old",
+                        "output": "bar",
+                    },
+                    {"type": "message", "role": "user", "content": "msg1"},
+                    {
+                        "type": "function_call",
+                        "call_id": "call_new",
+                        "name": "baz",
+                        "arguments": "{}",
+                    },
+                    {
+                        "type": "function_call_output",
+                        "call_id": "call_new",
+                        "output": "qux",
+                    },
+                ]
+            )
+
+            items = await session.get_items()
+
+            # The oldest items are truncated to limit=3, leaving the last 3 rows:
+            # msg1, function_call(call_new), function_call_output(call_new)
+            # The orphaned function_call_output(call_old) should NOT be present.
+            orphaned = [
+                item
+                for item in items
+                if item.get("type") == "function_call_output"
+                and item.get("call_id") == "call_old"
+            ]
+            assert len(orphaned) == 0
+
+            # The valid pair should still be intact
+            valid_outputs = [
+                item
+                for item in items
+                if item.get("type") == "function_call_output"
+                and item.get("call_id") == "call_new"
+            ]
+            assert len(valid_outputs) == 1
 
     def test_db_file_created(self, tmp_path):
         """Verify the SQLite database file is created in the storage path."""

@@ -65,7 +65,7 @@ class Config(BaseSettings):
         description="Authorized Telegram user ID (only this user can use the bot)",
     )
     max_conversation_history: int = Field(
-        default=10,
+        default=50,
         description="Maximum number of messages to keep in conversation history",
     )
 
