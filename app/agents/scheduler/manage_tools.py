@@ -39,7 +39,13 @@ async def list_scheduled_tasks(
             s_type = schedule.get("type", "?")
 
             if s_type == "cron":
-                schedule_desc = f"cron: {schedule.get('expression', '?')}"
+                expr = schedule.get("expression", "")
+                try:
+                    from cron_descriptor import ExpressionDescriptor
+
+                    schedule_desc = str(ExpressionDescriptor(expr))
+                except Exception:
+                    schedule_desc = f"cron: {expr}"
             elif s_type == "interval":
                 schedule_desc = f"every {schedule.get('interval_seconds', '?')}s"
             elif s_type == "date":
