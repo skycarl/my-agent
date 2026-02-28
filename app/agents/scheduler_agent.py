@@ -24,13 +24,17 @@ async def schedule_task(
     description: str | None = None,
     api_method: str = "POST",
     instruction: str = "",
+    mode: str = "agent",  # "agent" | "notify"
 ) -> str:
-    """Schedule an API call to /agent_response using the scheduler service.
+    """Schedule a task using the scheduler service.
 
-    Avoids importing the function-decorated tool (which uses a non-strict schema)
-    by writing to the task store directly and reloading the scheduler.
+    mode="agent" routes through the full agent pipeline via /agent_response.
+    mode="notify" sends a Telegram message directly (no agent processing).
     """
     try:
+        if mode not in ("agent", "notify"):
+            return "Error: mode must be 'agent' or 'notify'"
+
         # Build schedule
         if schedule_type == "cron":
             if not cron_expression:
@@ -51,25 +55,33 @@ async def schedule_task(
         else:
             return "Error: schedule_type must be one of: cron, interval, date"
 
-        # Build task configuration (api_call only, endpoint allowlist enforced)
-        new_task = {
+        # Build task configuration
+        new_task: dict = {
             "id": None,
             "name": name,
             "type": "api_call",
+            "mode": mode,
             "enabled": True,
             "description": description,
             "schedule": schedule,
-            "api_call": {
+            # Avoid duplicate user notifications from retries on long-running agent calls
+            "max_retries": 0,
+            "retry_delay": 60,
+        }
+
+        if mode == "notify":
+            new_task["notification"] = {
+                "message": instruction,
+                "parse_mode": "HTML",
+            }
+        else:
+            new_task["api_call"] = {
                 "endpoint": "/agent_response",
                 "method": api_method or "POST",
                 "payload": {"input": instruction} if instruction else {},
                 "headers": None,
                 "timeout": 120,
-            },
-            # Avoid duplicate user notifications from retries on long-running agent calls
-            "max_retries": 0,
-            "retry_delay": 60,
-        }
+            }
 
         # Persist and reload scheduler
         from app.core.task_store import append_task_to_config  # local import
@@ -102,17 +114,24 @@ def create_scheduler_agent(model: str = None) -> Agent:
 
     scheduler = Agent(
         name="Scheduler",
-        instructions="""You are the Scheduler. You convert clear natural-language instructions into scheduled tasks using the add_scheduled_task tool.
+        instructions="""You are the Scheduler. You convert clear natural-language instructions into scheduled tasks using the schedule_task tool.
+
+Execution modes:
+- mode="notify" — Sends a message directly to the user via Telegram. Use for simple reminders, nudges, and messages that just need to be delivered as-is. This is the DEFAULT for reminders.
+- mode="agent" — Routes through the full agent pipeline via /agent_response. Use when the task needs to query live data, call tools, or perform analysis at execution time.
+
+Examples of when to use each mode:
+- "Remind me to check on my referral bonus" → notify (just deliver the message)
+- "Remind me to water the garden" → notify
+- "Every morning tell me today's monorail hours" → agent (needs to look up live data)
+- "Check the garden stats every Sunday" → agent (needs to query the garden database)
+
+For notify mode: Write the notification message as the user should see it, in second person. Not "remind me to...", but "Time to check on your referral bonus!" or "Don't forget to water the garden!"
 
 Supported schedule types:
 - cron: Produce a standard 5-field cron expression (min hour day month weekday). Example: "30 19 * * 2".
 - interval: Provide interval_seconds as an integer (e.g., 900 for every 15 minutes).
 - date: Provide run_at as an ISO-8601 timestamp. Timezone may be omitted and app defaults will apply (e.g., "2025-09-01T09:00:00").
-
-Task requirements:
-- Always use task_type="api_call".
-- Only schedule calls to api_endpoint="/agent_response".
-- For typical reminders, set api_method="POST" and api_payload={"input": "<the user's instruction>"}.
 
 Listing and deletion:
 - Use list_scheduled_tasks to show existing tasks by their human-friendly names.
@@ -122,7 +141,7 @@ Clarifying questions:
 - If any required detail (date, time, or recurrence pattern) is missing or ambiguous, ask a brief, direct clarifying question. Continue asking follow-ups until you have what you need.
 
 Tool usage and responses:
-- Use add_scheduled_task to create the schedule.
+- Use schedule_task to create the schedule.
 - Use list_scheduled_tasks to display current schedules.
 - Use delete_scheduled_task to remove a schedule by name.
 - After a successful tool call (success=true), reply with a concise confirmation of what was scheduled and when it will run. Do not include any task_id.
@@ -133,7 +152,8 @@ Tool usage and responses:
 - If the tool returns an error (success=false), briefly state the error message and do not attempt recovery.
 
 Important:
-- Only schedule /agent_response calls. Do not schedule other endpoints.
+- Default to mode="notify" for simple reminders and messages.
+- Use mode="agent" only when live data or tool calls are needed at execution time.
 - If the user's instruction is immediately schedulable, schedule directly without unnecessary questions.
 """,
         tools=[schedule_task, list_scheduled_tasks, delete_scheduled_task],

@@ -36,6 +36,7 @@ async def list_scheduled_tasks(
             name = str(t.get("name", ""))
             tid = str(t.get("id", ""))
             enabled = bool(t.get("enabled", True))
+            task_mode = t.get("mode", "agent")
             schedule = t.get("schedule", {}) or {}
             s_type = schedule.get("type", "?")
             extra = (
@@ -45,7 +46,7 @@ async def list_scheduled_tasks(
                 or ""
             )
             lines.append(
-                f"- {name} [{tid}] {'ENABLED' if enabled else 'DISABLED'} ({s_type} {extra})"
+                f"- {name} [{tid}] [mode={task_mode}] {'ENABLED' if enabled else 'DISABLED'} ({s_type} {extra})"
             )
         return "\n".join(lines)
     except Exception as e:

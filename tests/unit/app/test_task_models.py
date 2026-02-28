@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from app.models.tasks import (
     APICallConfig,
+    NotificationConfig,
     TaskConfig,
     TaskExecutionResult,
     TaskResultsStorage,
@@ -196,6 +197,75 @@ class TestTaskConfigValidation:
         assert tc.enabled is True
         assert tc.max_retries == 3
         assert tc.retry_delay == 60
+
+    def test_mode_defaults_to_agent(self):
+        """mode defaults to 'agent' when not specified."""
+        tc = TaskConfig(
+            id="t1",
+            name="Test",
+            type="api_call",
+            schedule=TaskSchedule(type="cron", expression="0 7 * * *"),
+            api_call=APICallConfig(
+                endpoint="/agent_response",
+                method="POST",
+                payload={},
+            ),
+        )
+        assert tc.mode == "agent"
+
+    def test_notify_mode_requires_notification(self):
+        """mode='notify' without notification raises error."""
+        with pytest.raises((ValidationError, ValueError)):
+            TaskConfig(
+                id="t1",
+                name="Test",
+                type="api_call",
+                mode="notify",
+                schedule=TaskSchedule(type="cron", expression="0 7 * * *"),
+            )
+
+    def test_agent_mode_requires_api_call(self):
+        """mode='agent' with type='api_call' but no api_call raises error."""
+        with pytest.raises((ValidationError, ValueError)):
+            TaskConfig(
+                id="t1",
+                name="Test",
+                type="api_call",
+                mode="agent",
+                schedule=TaskSchedule(type="cron", expression="0 7 * * *"),
+                api_call=None,
+            )
+
+    def test_invalid_mode_rejected(self):
+        """An invalid mode value is rejected."""
+        with pytest.raises(ValidationError):
+            TaskConfig(
+                id="t1",
+                name="Test",
+                type="api_call",
+                mode="unknown",
+                schedule=TaskSchedule(type="cron", expression="0 7 * * *"),
+            )
+
+    def test_notify_mode_with_notification_valid(self):
+        """mode='notify' with notification config is valid."""
+        tc = TaskConfig(
+            id="t1",
+            name="Reminder",
+            type="api_call",
+            mode="notify",
+            schedule=TaskSchedule(type="cron", expression="0 9 * * *"),
+            notification=NotificationConfig(message="Time to check your bonus!"),
+        )
+        assert tc.mode == "notify"
+        assert tc.notification.message == "Time to check your bonus!"
+        assert tc.notification.parse_mode == "HTML"
+        assert tc.api_call is None
+
+    def test_notification_empty_message_rejected(self):
+        """NotificationConfig with empty message is rejected."""
+        with pytest.raises(ValidationError):
+            NotificationConfig(message="")
 
 
 # ===========================================================================

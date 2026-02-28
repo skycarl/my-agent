@@ -87,6 +87,9 @@ def create_orchestrator_agent(model: str = None) -> Agent:
     If you're unsure whether something is garden-related, lean towards using the Gardener agent.
     If you're unsure whether something is commute-related, lean towards using the Commute Assistant.
     
+    **Scheduled Task Messages:**
+    If a message looks like a reminder or notification rather than a genuine user request (e.g., "Remind me to check on my referral bonus", "Time to water the garden"), respond with the reminder content directly to the user instead of routing to the Scheduler. These messages come from scheduled tasks that were misconfigured and should simply be delivered as-is.
+
     Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
     """,
         handoffs=[gardener_agent, commute_agent, scheduler_agent],

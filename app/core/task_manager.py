@@ -13,6 +13,7 @@ from loguru import logger
 
 from app.core.settings import config
 from app.core.timezone_utils import now_local
+from app.core.telegram_client import telegram_client
 from app.models.tasks import (
     TaskConfig,
     TaskExecutionResult,
@@ -97,7 +98,9 @@ class TaskManager:
             response_data: Dict[str, Any] = {}
 
             async def run_primary_action() -> tuple[bool, Dict[str, Any]]:
-                if task.type == "api_call":
+                if task.mode == "notify":
+                    return await self._execute_notification(task)
+                elif task.type == "api_call":
                     return await self._execute_api_call(task)
                 else:
                     raise ValueError(f"Unknown task type: {task.type}")
@@ -160,6 +163,37 @@ class TaskManager:
         self._save_results_storage()
 
         return result
+
+    async def _execute_notification(
+        self, task: TaskConfig
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """Execute a notify-mode task by sending a message directly via Telegram."""
+        if not task.notification:
+            return False, {"error": "No notification configuration provided"}
+
+        try:
+            target_user_id = config.authorized_user_id
+            success, message_id = await telegram_client.send_message(
+                user_id=target_user_id,
+                message=task.notification.message,
+                parse_mode=task.notification.parse_mode,
+            )
+
+            if success:
+                logger.debug(
+                    f"Notification sent for task '{task.id}', message_id={message_id}"
+                )
+                return True, {
+                    "telegram_message_id": message_id,
+                    "message": task.notification.message,
+                }
+            else:
+                return False, {"error": "Telegram send_message returned failure"}
+
+        except Exception as e:
+            error_msg = f"Notification failed: {str(e)}"
+            logger.error(error_msg)
+            return False, {"error": error_msg}
 
     async def _execute_api_call(self, task: TaskConfig) -> Tuple[bool, Dict[str, Any]]:
         """Execute an API call task."""

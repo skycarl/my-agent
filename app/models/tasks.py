@@ -79,8 +79,11 @@ class APICallConfig(BaseModel):
     timeout: int = Field(default=120, description="Request timeout in seconds")
 
 
-# Removed TelegramConfig and CustomFunctionConfig as sending is owned by the
-# /agent_response endpoint and we only support API call tasks.
+class NotificationConfig(BaseModel):
+    """Configuration for direct notification tasks that bypass the agent pipeline."""
+
+    message: str = Field(min_length=1, description="Message to send via Telegram")
+    parse_mode: Optional[str] = Field(default="HTML", description="Telegram parse mode")
 
 
 class TaskConfig(BaseModel):
@@ -89,12 +92,20 @@ class TaskConfig(BaseModel):
     id: str = Field(description="Unique task identifier")
     name: str = Field(description="Human-readable task name")
     type: Literal["api_call"] = Field(description="Type of task to execute")
+    mode: Literal["agent", "notify"] = Field(
+        default="agent",
+        description="Execution mode: 'agent' routes through the agent pipeline, 'notify' sends a message directly",
+    )
     enabled: bool = Field(default=True, description="Whether the task is enabled")
     schedule: TaskSchedule = Field(description="Task schedule configuration")
 
     # Task-specific configurations
     api_call: Optional[APICallConfig] = Field(
-        default=None, description="API call configuration (required for api_call tasks)"
+        default=None, description="API call configuration (required for agent mode)"
+    )
+    notification: Optional[NotificationConfig] = Field(
+        default=None,
+        description="Notification configuration (required for notify mode)",
     )
 
     # Task metadata
@@ -103,11 +114,13 @@ class TaskConfig(BaseModel):
     retry_delay: int = Field(default=60, description="Delay between retries in seconds")
 
     def model_post_init(self, __context) -> None:
-        """Validate that required configurations are provided based on task type."""
-        if self.type == "api_call" and not self.api_call:
+        """Validate that required configurations are provided based on mode."""
+        if self.mode == "agent" and self.type == "api_call" and not self.api_call:
             raise ValueError(
-                f"api_call configuration is required for task type '{self.type}'"
+                "api_call configuration is required for agent mode with type 'api_call'"
             )
+        if self.mode == "notify" and not self.notification:
+            raise ValueError("notification configuration is required for notify mode")
 
 
 class TasksConfiguration(BaseModel):

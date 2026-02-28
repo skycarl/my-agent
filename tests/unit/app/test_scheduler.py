@@ -10,7 +10,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.core.settings import Config
-from app.models.tasks import APICallConfig, TaskConfig, TaskSchedule
+from app.models.tasks import (
+    APICallConfig,
+    NotificationConfig,
+    TaskConfig,
+    TaskSchedule,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.app]
 
@@ -208,6 +213,26 @@ class TestScheduleTask:
         result = scheduler_service._schedule_task(task)
 
         assert result is False
+
+    def test_notify_mode_schedules_correctly(self, scheduler_service):
+        """A notify-mode TaskConfig schedules a job just like agent mode."""
+        task = TaskConfig(
+            id="notify-1",
+            name="Reminder",
+            type="api_call",
+            mode="notify",
+            enabled=True,
+            schedule=TaskSchedule(type="cron", expression="0 9 * * *"),
+            notification=NotificationConfig(
+                message="Time to check your bonus!",
+                parse_mode="HTML",
+            ),
+        )
+        result = scheduler_service._schedule_task(task)
+
+        assert result is True
+        scheduler_service.scheduler.add_job.assert_called_once()
+        assert task.id in scheduler_service.loaded_task_ids
 
 
 # ===========================================================================

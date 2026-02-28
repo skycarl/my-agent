@@ -8,7 +8,12 @@ import httpx
 import pytest
 
 from app.core.settings import Config
-from app.models.tasks import APICallConfig, TaskConfig, TaskSchedule
+from app.models.tasks import (
+    APICallConfig,
+    NotificationConfig,
+    TaskConfig,
+    TaskSchedule,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.app]
 
@@ -320,3 +325,113 @@ class TestExecuteTask:
 
         assert len(task_manager_instance.results_storage.results) == 1
         assert task_manager_instance.results_storage.results[0].task_id == "task-1"
+
+
+# ===========================================================================
+# Notify-mode helpers and tests
+# ===========================================================================
+
+
+def _make_notify_task(
+    message="Time to check your bonus!",
+    parse_mode="HTML",
+    max_retries=0,
+    retry_delay=0,
+) -> TaskConfig:
+    """Build a minimal notify-mode TaskConfig."""
+    return TaskConfig(
+        id="notify-1",
+        name="Notify Task",
+        type="api_call",
+        mode="notify",
+        enabled=True,
+        schedule=TaskSchedule(type="cron", expression="0 9 * * *"),
+        notification=NotificationConfig(message=message, parse_mode=parse_mode),
+        max_retries=max_retries,
+        retry_delay=retry_delay,
+    )
+
+
+class TestExecuteNotification:
+    @pytest.mark.asyncio
+    async def test_successful_notification(self, task_manager_instance):
+        """A successful send_message returns (True, {telegram_message_id, message})."""
+        task = _make_notify_task()
+
+        with patch(
+            "app.core.task_manager.telegram_client.send_message",
+            new_callable=AsyncMock,
+            return_value=(True, 42),
+        ):
+            success, data = await task_manager_instance._execute_notification(task)
+
+        assert success is True
+        assert data["telegram_message_id"] == 42
+        assert data["message"] == "Time to check your bonus!"
+
+    @pytest.mark.asyncio
+    async def test_notification_send_failure(self, task_manager_instance):
+        """When send_message returns (False, None), returns failure."""
+        task = _make_notify_task()
+
+        with patch(
+            "app.core.task_manager.telegram_client.send_message",
+            new_callable=AsyncMock,
+            return_value=(False, None),
+        ):
+            success, data = await task_manager_instance._execute_notification(task)
+
+        assert success is False
+        assert "error" in data
+
+    @pytest.mark.asyncio
+    async def test_notification_exception(self, task_manager_instance):
+        """An exception during send returns failure."""
+        task = _make_notify_task()
+
+        with patch(
+            "app.core.task_manager.telegram_client.send_message",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("connection lost"),
+        ):
+            success, data = await task_manager_instance._execute_notification(task)
+
+        assert success is False
+        assert "connection lost" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_no_notification_config(self, task_manager_instance):
+        """If notification is None, returns (False, {error})."""
+        task = _make_notify_task()
+        task.notification = None
+
+        success, data = await task_manager_instance._execute_notification(task)
+
+        assert success is False
+        assert "no notification" in data["error"].lower()
+
+
+class TestExecuteTaskNotifyDispatch:
+    @pytest.mark.asyncio
+    async def test_execute_task_dispatches_notify_mode(self, task_manager_instance):
+        """execute_task calls _execute_notification for mode='notify'."""
+        task = _make_notify_task()
+
+        mock_notify = AsyncMock(return_value=(True, {"message": "sent"}))
+        with patch.object(task_manager_instance, "_execute_notification", mock_notify):
+            result = await task_manager_instance.execute_task(task)
+
+        assert result.success is True
+        mock_notify.assert_called_once_with(task)
+
+    @pytest.mark.asyncio
+    async def test_execute_task_dispatches_agent_mode(self, task_manager_instance):
+        """execute_task calls _execute_api_call for mode='agent'."""
+        task = _make_api_task(max_retries=0)
+
+        mock_api = AsyncMock(return_value=(True, {"status_code": 200, "response": {}}))
+        with patch.object(task_manager_instance, "_execute_api_call", mock_api):
+            result = await task_manager_instance.execute_task(task)
+
+        assert result.success is True
+        mock_api.assert_called_once_with(task)

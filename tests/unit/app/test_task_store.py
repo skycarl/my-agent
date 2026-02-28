@@ -171,6 +171,28 @@ class TestAppendTask:
         assert len(data["tasks"]) == 1
         assert data["tasks"][0]["id"] == task_id
 
+    def test_notify_mode_task_persists(self, test_config, tasks_file):
+        """A notify-mode task is stored with its notification config."""
+        task = {
+            "name": "Reminder",
+            "type": "api_call",
+            "mode": "notify",
+            "enabled": True,
+            "schedule": {"type": "cron", "expression": "0 9 * * *"},
+            "notification": {
+                "message": "Time to check your bonus!",
+                "parse_mode": "HTML",
+            },
+        }
+        task_id = append_task_to_config(task)
+
+        data = json.loads(tasks_file.read_text())
+        stored = data["tasks"][0]
+        assert stored["id"] == task_id
+        assert stored["mode"] == "notify"
+        assert stored["notification"]["message"] == "Time to check your bonus!"
+        assert stored.get("api_call") is None
+
 
 # ===========================================================================
 # list_tasks_from_config tests

@@ -116,10 +116,12 @@ class NewTaskRequest(BaseModel):
     id: Optional[str] = None
     name: str
     type: str
+    mode: str = "agent"
     enabled: bool = True
     description: Optional[str] = None
     schedule: dict
     api_call: Optional[dict] = None
+    notification: Optional[dict] = None
     max_retries: Optional[int] = None
     retry_delay: Optional[int] = None
 
@@ -146,24 +148,43 @@ async def add_task(request: NewTaskRequest):
         # Convert request to dict, filter out None values
         task_data = {k: v for k, v in request.model_dump().items() if v is not None}
 
+        # Validate mode
+        mode = task_data.get("mode", "agent")
+        if mode not in ("agent", "notify"):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid mode: '{mode}'. Must be 'agent' or 'notify'.",
+            )
+
         # Validate schedule against Pydantic model before persisting
         try:
             TaskSchedule(**task_data.get("schedule", {}))
         except (ValueError, Exception) as e:
             raise HTTPException(status_code=422, detail=f"Invalid schedule: {e}")
 
-        # Validate api_call and enforce endpoint allowlist
-        if task_data.get("api_call"):
-            try:
-                api_call = APICallConfig(**task_data["api_call"])
-            except (ValueError, Exception) as e:
-                raise HTTPException(status_code=422, detail=f"Invalid api_call: {e}")
-            normalized = "/" + api_call.endpoint.lstrip("/")
-            if normalized not in ALLOWED_TASK_ENDPOINTS:
+        if mode == "notify":
+            # Notify mode requires notification config with a message
+            notification = task_data.get("notification")
+            if not notification or not notification.get("message"):
                 raise HTTPException(
                     status_code=422,
-                    detail=f"Endpoint not allowed: {api_call.endpoint}. Allowed: {', '.join(sorted(ALLOWED_TASK_ENDPOINTS))}",
+                    detail="notification.message is required for notify mode",
                 )
+        else:
+            # Agent mode: validate api_call and enforce endpoint allowlist
+            if task_data.get("api_call"):
+                try:
+                    api_call = APICallConfig(**task_data["api_call"])
+                except (ValueError, Exception) as e:
+                    raise HTTPException(
+                        status_code=422, detail=f"Invalid api_call: {e}"
+                    )
+                normalized = "/" + api_call.endpoint.lstrip("/")
+                if normalized not in ALLOWED_TASK_ENDPOINTS:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"Endpoint not allowed: {api_call.endpoint}. Allowed: {', '.join(sorted(ALLOWED_TASK_ENDPOINTS))}",
+                    )
 
         # Validate cron expression if applicable
         if task_data.get("schedule", {}).get("type") == "cron":
