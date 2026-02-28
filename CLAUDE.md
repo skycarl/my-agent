@@ -83,6 +83,32 @@ Settings are managed via `app/core/settings.py` using Pydantic `BaseSettings`. A
 2. Adding the env var to `.env.example`
 3. Accessing via `from app.core.settings import config`
 
+## Coding Philosophy
+
+**The code is not the point—solving the problem is.** Write code that works, is readable, and is maintainable. Don't write code to be clever.
+
+## Core Principles
+
+| Principle | Meaning |
+|-----------|---------|
+| **YAGNI** | You Ain't Gonna Need It. Don't build features until they're actually needed. |
+| **DRY** | Don't Repeat Yourself. But wait for the Rule of Three—don't abstract on first duplication. |
+| **KISS** | Keep It Simple. The best code is the code you don't write. |
+| **Don't Outrun Your Headlights** | Take small steps. Only design what you can see clearly. |
+
+### Practical Guidelines
+
+- **Rule of Three**: Don't create an abstraction until you've seen the pattern three times. Two similar code blocks are fine. Premature abstraction creates more problems than duplication. When you notice potential refactoring opportunities, ask the user if they want to do it.
+- **Code is a liability**: Every line of code is a line that can break, a line that needs maintenance, a line someone has to read. Less is more. Don't introduce insane amounts of unnecessary error handling when somewhere else in the call stack will handle it just fine.
+
+### What to Avoid
+
+- **Speculative generality**: Building abstractions for imagined future requirements
+- **Gold plating**: Adding features nobody asked for
+- **Architecture astronautics**: Layers of indirection that obscure what the code actually does
+
+When in doubt, write the straightforward thing. You can always refactor later when you understand the problem better.
+
 ## Testing Conventions
 
 - Tests in `tests/unit/`, `tests/integration/`, `tests/e2e/` mirroring source structure
