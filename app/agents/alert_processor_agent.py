@@ -44,17 +44,34 @@ async def get_recent_alerts(limit: int = 5) -> str:
     return str(result.model_dump())
 
 
-def create_alert_processor_agent(model: str = None) -> Agent:
+def create_alert_processor_agent(
+    model: str = None, commute_context: str = None
+) -> Agent:
     """
     Create an Alert Processor agent with structured output.
 
     Args:
         model: The OpenAI model to use for this agent
+        commute_context: Optional commute schedule context to inject for
+                         schedule-aware alert filtering
 
     Returns:
         Configured Alert Processor agent with output_type=AlertDecision
     """
     agent_model = model or config.default_model
+
+    schedule_section = ""
+    if commute_context:
+        schedule_section = f"""
+
+## User Commute Context
+{commute_context}
+
+## Schedule-Aware Filtering
+- If today is NOT a commute day (per the regular schedule) AND there are no ad hoc overrides marking today as a commute day, set notify_user=false regardless of alert content. Include in rationale that today is not a commute day.
+- If today IS a commute day, also consider whether the alert is relevant to the user's routes. Prefer to notify (soft matching) — the user would rather get an extra alert than miss one that matters.
+- If today is a regular commute day BUT there is an ad hoc override marking today as a remote day, treat it as not a commute day.
+"""
 
     alert_processor = Agent(
         name="Alert Processor",
@@ -88,7 +105,7 @@ Your job is to:
 - Format a clear, concise notification message with relevant details (affected routes, estimated delays, alternatives)
 - Only use information available in the alert body or from your tools; do not make up information
 - Always provide a rationale explaining your decision
-""",
+{schedule_section}""",
         tools=[get_current_date, get_recent_alerts],
         output_type=AlertDecision,
         model=agent_model,

@@ -27,11 +27,6 @@ class Config(BaseSettings):
             "gpt-5",
             "gpt-5-mini",
             "o4-mini",
-            "o3",
-            "o3-mini",
-            "gpt-4.1",
-            "gpt-4o",
-            "gpt-4o-mini",
         ],
         description="List of valid OpenAI models that can be used",
     )
@@ -136,6 +131,16 @@ class Config(BaseSettings):
     def task_results_path(self) -> str:
         """Get the task results file path based on storage path."""
         return f"{self.storage_path}/task_results.json"
+
+    @property
+    def commute_preferences_path(self) -> str:
+        """Get the commute preferences file path based on storage path."""
+        return f"{self.storage_path}/commute_preferences.md"
+
+    @property
+    def commute_overrides_path(self) -> str:
+        """Get the commute overrides file path based on storage path."""
+        return f"{self.storage_path}/commute_overrides.json"
 
     model_config = SettingsConfigDict(
         env_file=".env",

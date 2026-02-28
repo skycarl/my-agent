@@ -26,11 +26,6 @@ def test_config_defaults():
         "gpt-5",
         "gpt-5-mini",
         "o4-mini",
-        "o3",
-        "o3-mini",
-        "gpt-4.1",
-        "gpt-4o",
-        "gpt-4o-mini",
     ]
     assert config.valid_openai_models == expected_models
 

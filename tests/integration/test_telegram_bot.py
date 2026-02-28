@@ -238,7 +238,7 @@ class TestTelegramBot:
             mock_response = Mock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
-                "models": ["gpt-4o", "gpt-5"],
+                "models": ["gpt-5-mini", "gpt-5"],
                 "default_model": "gpt-5",
             }
 
@@ -324,7 +324,7 @@ class TestTelegramBot:
             mock_response = Mock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
-                "models": ["gpt-4o", "gpt-5"],
+                "models": ["gpt-5-mini", "gpt-5"],
                 "default_model": "gpt-5",
             }
 
@@ -334,7 +334,7 @@ class TestTelegramBot:
                 )
 
                 models = await bot._get_available_models()
-                assert models == ["gpt-4o", "gpt-5"]
+                assert models == ["gpt-5-mini", "gpt-5"]
 
     @pytest.mark.asyncio
     async def test_get_available_models_failure(self):

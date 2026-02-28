@@ -379,6 +379,21 @@ class SchedulerService:
                 max_instances=1,
             )
 
+            # Schedule daily cleanup of expired commute overrides at 1:00 AM
+            from app.agents.commute.preferences_service import (
+                cleanup_expired_overrides,
+            )
+
+            self.scheduler.add_job(
+                func=cleanup_expired_overrides,
+                trigger=CronTrigger(
+                    hour=1, minute=0, timezone=config.scheduler_timezone
+                ),
+                id="commute_overrides_cleanup",
+                name="Cleanup Expired Commute Overrides",
+                max_instances=1,
+            )
+
             # Start the scheduler
             self.scheduler.start()
             self.running = True

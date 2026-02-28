@@ -573,9 +573,14 @@ async def process_alert(request: AlertRequest):
                 detail="OpenAI API key is not configured. Please set the OPENAI_API_KEY environment variable.",
             )
 
+        # Inject commute context for schedule-aware filtering
+        from app.agents.commute.preferences_service import get_full_commute_context
+
+        commute_context = get_full_commute_context()
+
         # Create dedicated alert processor agent
         logger.debug("Creating alert processor agent for alert processing")
-        alert_agent = create_alert_processor_agent()
+        alert_agent = create_alert_processor_agent(commute_context=commute_context)
 
         # Process alert through dedicated alert processor agent
         try:
