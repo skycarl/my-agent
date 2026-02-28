@@ -5,11 +5,47 @@ This module provides a way for the FastAPI app to send messages to Telegram user
 without needing to run the full Telegram bot.
 """
 
+import html
+import re
+
 import httpx
 from typing import Optional, Tuple
 from loguru import logger
 
 from app.core.settings import config
+
+
+def markdown_to_telegram_html(text: str) -> str:
+    """Convert Markdown formatting from agent output to Telegram-compatible HTML.
+
+    Handles: **bold**, *italic*, `inline code`, ```code blocks```, and list markers.
+    Escapes HTML special characters first so agent output can't inject tags.
+    """
+    # First, escape HTML special characters so raw <, >, & in agent text are safe
+    text = html.escape(text)
+
+    # Code blocks (``` ... ```) — must come before inline code
+    text = re.sub(
+        r"```(?:\w*)\n?(.*?)```",
+        r"<pre>\1</pre>",
+        text,
+        flags=re.DOTALL,
+    )
+
+    # Inline code (`code`)
+    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+
+    # Bullet list markers (- item or * item at start of line) → bullet character
+    # Must run before italic conversion so "* item" isn't treated as italic
+    text = re.sub(r"^[-*] ", "• ", text, flags=re.MULTILINE)
+
+    # Bold (**text**)
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+
+    # Italic (*text*) — only single *, not inside bold
+    text = re.sub(r"(?<!\*)\*([^*]+?)\*(?!\*)", r"<i>\1</i>", text)
+
+    return text
 
 
 class TelegramClient:
