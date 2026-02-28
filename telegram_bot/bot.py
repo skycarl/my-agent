@@ -2,7 +2,7 @@
 Telegram bot implementation using python-telegram-bot library.
 """
 
-# Removed List import - no longer using message list types
+import base64
 
 import httpx
 from loguru import logger
@@ -303,11 +303,57 @@ Just send me any message and I'll respond using AI!
                 "Sorry, something went wrong. Please try again."
             )
 
-    async def send_message_to_backend(self, message: str) -> None:
+    async def handle_photo(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle incoming photo messages."""
+        if not update.message or not update.message.from_user:
+            logger.warning("Received photo without user information")
+            return
+
+        user_id = update.message.from_user.id
+
+        if not self._is_authorized_user(user_id):
+            await self._log_unauthorized_access(update, "photo")
+            return
+
+        try:
+            # Get the largest photo resolution
+            photo = update.message.photo[-1]
+            file = await photo.get_file()
+            photo_bytes = await file.download_as_bytearray()
+            image_base64 = base64.b64encode(photo_bytes).decode("utf-8")
+
+            text = update.message.caption or "Analyze this image"
+
+            logger.debug(
+                f"Processing photo from authorized user {user_id}, caption: {text}"
+            )
+
+            await context.bot.send_chat_action(
+                chat_id=update.message.chat_id, action="typing"
+            )
+
+            await self.send_message_to_backend(text, image_base64=image_base64)
+
+            logger.debug("Sent photo message to backend for async processing")
+
+        except Exception as e:
+            logger.info(f"Error handling photo from authorized user {user_id}: {e}")
+            await update.message.reply_text(
+                "Sorry, something went wrong processing your photo. Please try again."
+            )
+
+    async def send_message_to_backend(
+        self, message: str, *, image_base64: str | None = None
+    ) -> None:
         """Send message to backend for async processing (fire-and-forget)."""
         try:
             # Prepare the request with single input message
             api_request = {"input": message, "model": self.selected_model}
+
+            if image_base64:
+                api_request["image_base64"] = image_base64
 
             headers = {"Content-Type": "application/json", "X-Token": self.x_token}
 
@@ -535,6 +581,7 @@ Just send me any message and I'll respond using AI!
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )
+        self.application.add_handler(MessageHandler(filters.PHOTO, self.handle_photo))
         self.application.add_handler(CallbackQueryHandler(self.model_callback_handler))
         self.application.add_error_handler(self.error_handler)
         logger.info("Bot handlers set up successfully")

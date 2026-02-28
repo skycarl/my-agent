@@ -67,6 +67,7 @@ class AgentRequest(BaseModel):
         None  # Conversation history (for continued conversations)
     )
     model: Optional[str] = None  # Optional model override
+    image_base64: Optional[str] = None  # Optional base64-encoded image
 
     def model_post_init(self, __context) -> None:
         """Validate that either input or messages is provided, but not both."""
@@ -370,6 +371,24 @@ async def create_agent_response(request_body: AgentRequest, request: Request):
                 detail="OpenAI API key is not configured. Please set the OPENAI_API_KEY environment variable.",
             )
 
+        # Build agent input — multimodal when image is present
+        if request_body.image_base64:
+            agent_input = [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": user_message},
+                        {
+                            "type": "input_image",
+                            "image_url": f"data:image/jpeg;base64,{request_body.image_base64}",
+                        },
+                    ],
+                }
+            ]
+        else:
+            agent_input = user_message
+
         # Run the agent workflow using the Orchestrator with SDK session
         # The session automatically persists full conversation state
         # (including tool calls, results, and handoff context)
@@ -382,7 +401,7 @@ async def create_agent_response(request_body: AgentRequest, request: Request):
             )
             result = await Runner.run(
                 orchestrator_agent,
-                input=user_message,
+                input=agent_input,
                 max_turns=10,
                 run_config=RunConfig(workflow_name="scheduled_task"),
             )
@@ -390,7 +409,7 @@ async def create_agent_response(request_body: AgentRequest, request: Request):
             session = get_session()
             result = await Runner.run(
                 orchestrator_agent,
-                input=user_message,
+                input=agent_input,
                 session=session,
                 max_turns=10,
                 run_config=RunConfig(workflow_name="agent_response"),
