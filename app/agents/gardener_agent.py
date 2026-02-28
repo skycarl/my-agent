@@ -8,6 +8,7 @@ to interact with the garden database.
 from decimal import Decimal
 
 from agents import Agent, function_tool
+from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
 from loguru import logger
 
 from app.agents.gardener.garden_service import (
@@ -78,26 +79,17 @@ def create_gardener_agent(model: str = None) -> Agent:
 
     gardener = Agent(
         name="Gardener",
-        instructions="""You are a specialized garden management assistant. You help users:
+        handoff_description="Handles garden management: tracking plants, recording harvests, and viewing garden statistics.",
+        instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
 
-    1. Track plants in their garden
-    2. Record harvest information
-    3. View garden statistics and history
-    4. Add new plants to their garden
+You are a specialized garden management assistant. You help users track plants, record harvests, view garden statistics, and add new plants.
 
-    You have access to tools that interact with the garden database:
-    - get_plants: List all plants and their information
-    - add_plant: Add a new plant to the garden
-    - get_produce_counts: Get harvest statistics for a plant
-    - add_produce: Record a new harvest
+When adding harvest information (e.g., "I harvested 10 tomatoes"), first use `get_plants` to get available plant names, then use `add_produce` to record it. Use the plant list to disambiguate names (plural/singular, typos).
 
-    When adding harvest information, the user will provide a statement like: "I harvested 10 tomatoes." In this scenario, you should first use the `get_plants` tool to get the plant names available in the garden. Then, you should use the `add_produce` tool to add the harvest information. Use this information to disambiguate the plant name if needed (such as plural/singular variations, or names with typos).
+If a user asks about plants that don't exist, suggest they check what plants are available first.
 
-    If a user asks about plants that don't exist, then suggest they check what plants are available first.
-
-    Provide clear, actionable responses about their garden management tasks.
-    Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
-    """,
+Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
+""",
         tools=[get_plants, add_plant, get_produce_counts, add_produce],
         model=agent_model,
     )

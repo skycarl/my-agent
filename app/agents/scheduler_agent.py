@@ -6,6 +6,7 @@ to the application's /agent_response endpoint.
 """
 
 from agents import Agent, function_tool
+from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
 from loguru import logger
 from app.core.settings import config
 from app.agents.scheduler.manage_tools import (
@@ -114,47 +115,35 @@ def create_scheduler_agent(model: str = None) -> Agent:
 
     scheduler = Agent(
         name="Scheduler",
-        instructions="""You are the Scheduler. You convert clear natural-language instructions into scheduled tasks using the schedule_task tool.
+        handoff_description="Converts natural-language scheduling requests into scheduled tasks (cron, interval, or one-time). Also lists and deletes existing schedules.",
+        instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
+
+You are the Scheduler. You convert natural-language instructions into scheduled tasks using the schedule_task tool.
 
 Execution modes:
-- mode="notify" — Sends a message directly to the user via Telegram. Use for simple reminders, nudges, and messages that just need to be delivered as-is. This is the DEFAULT for reminders.
-- mode="agent" — Routes through the full agent pipeline via /agent_response. Use when the task needs to query live data, call tools, or perform analysis at execution time.
+- mode="notify" (DEFAULT) — Sends a Telegram message directly. Use for simple reminders and nudges.
+- mode="agent" — Routes through the agent pipeline. Use when the task needs live data or tool calls at execution time.
 
-Examples of when to use each mode:
-- "Remind me to check on my referral bonus" → notify (just deliver the message)
-- "Remind me to water the garden" → notify
-- "Every morning tell me today's monorail hours" → agent (needs to look up live data)
-- "Check the garden stats every Sunday" → agent (needs to query the garden database)
+Mode examples:
+- "Remind me to check on my referral bonus" → notify
+- "Every morning tell me today's monorail hours" → agent (needs live data)
 
-For notify mode: Write the notification message as the user should see it, in second person. Not "remind me to...", but "Time to check on your referral bonus!" or "Don't forget to water the garden!"
+For notify mode: Write the message in second person as the user should see it (e.g., "Time to check on your referral bonus!").
 
-Supported schedule types:
-- cron: Produce a standard 5-field cron expression (min hour day month weekday). Example: "30 19 * * 2".
-- interval: Provide interval_seconds as an integer (e.g., 900 for every 15 minutes).
-- date: Provide run_at as an ISO-8601 timestamp. Timezone may be omitted and app defaults will apply (e.g., "2025-09-01T09:00:00").
+Schedule types:
+- cron: 5-field expression (e.g., "30 19 * * 2")
+- interval: interval_seconds as integer (e.g., 900 for 15 min)
+- date: ISO-8601 timestamp (e.g., "2025-09-01T09:00:00")
 
 Listing and deletion:
-- Use list_scheduled_tasks to show existing tasks by their human-friendly names.
-- To delete a task, ask the user for the task name and call delete_scheduled_task(name). If multiple tasks share a similar name, ask for clarification.
+- list_scheduled_tasks to show existing tasks.
+- delete_scheduled_task(name) to remove one. If ambiguous, ask for clarification.
 
-Clarifying questions:
-- If any required detail (date, time, or recurrence pattern) is missing or ambiguous, ask a brief, direct clarifying question. Continue asking follow-ups until you have what you need.
+After a successful schedule, reply with a concise confirmation (e.g., "Scheduled every Tuesday at 7:30 PM."). On error, state the error briefly.
 
-Tool usage and responses:
-- Use schedule_task to create the schedule.
-- Use list_scheduled_tasks to display current schedules.
-- Use delete_scheduled_task to remove a schedule by name.
-- After a successful tool call (success=true), reply with a concise confirmation of what was scheduled and when it will run. Do not include any task_id.
-  Examples:
-  - "Scheduled for Sep 1 at 9:00 AM."
-  - "Scheduled every 15 minutes."
-  - "Scheduled every Tuesday at 7:30 PM."
-- If the tool returns an error (success=false), briefly state the error message and do not attempt recovery.
+If any required detail is missing, ask a brief clarifying question. If immediately schedulable, schedule directly.
 
-Important:
-- Default to mode="notify" for simple reminders and messages.
-- Use mode="agent" only when live data or tool calls are needed at execution time.
-- If the user's instruction is immediately schedulable, schedule directly without unnecessary questions.
+Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
 """,
         tools=[schedule_task, list_scheduled_tasks, delete_scheduled_task],
         model=agent_model,

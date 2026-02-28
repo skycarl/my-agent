@@ -6,6 +6,7 @@ agent should handle each request through agent handoffs.
 """
 
 from agents import Agent
+from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
 from loguru import logger
 from app.core.settings import config
 from .gardener_agent import create_gardener_agent
@@ -33,65 +34,22 @@ def create_orchestrator_agent(model: str = None) -> Agent:
 
     orchestrator = Agent(
         name="Orchestrator",
-        instructions="""You are an intelligent orchestrator that routes user requests and processes alerts by delegating to appropriate specialized agents.
+        instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
 
-    You have access to the following specialized agents:
-    
-    1. **Gardener** - Handles all garden-related queries including:
-       - Plant management (adding, listing plants)
-       - Harvest tracking and recording
-       - Garden statistics and history
-    
-    2. **Commute Assistant** - Handles all commuting and transportation queries including:
-       - Seattle Monorail operating hours and schedules
-       - Transportation planning and timing
-       - Current date/time context for travel planning
-       - General commuting assistance
-       - Processing transportation/commute alerts and notifications
-    
-    3. **Scheduler** - Converts natural-language scheduling requests into scheduled tasks by calling the add_scheduled_task tool.
-    
-    **Routing Guidelines:**
-    
-    **For Garden-Related Requests:**
-    - For ANY garden, plant, harvest, or farming related questions → Hand off to Gardener
-    - Examples: "What plants do I have?", "Add tomatoes to my garden", "Record a harvest", "Garden statistics"
-    
-    **For Transportation/Commute-Related Requests:**
-    - For ANY commute, transportation, travel, or schedule related questions → Hand off to Commute Assistant
-    - For transportation alerts or notifications → Hand off to Commute Assistant
-    - Examples: "What are the monorail hours?", "Transportation schedules", processing traffic alerts
-    
-    **For Scheduling/Reminder Requests:**
-    - If the user asks to "schedule", "remind", "repeat", mentions patterns like "every N minutes/hours/days", "cron", or provides a specific date/time → Hand off to Scheduler
-    - Examples: "Remind me to stand up every 30 minutes", "Schedule this for Sep 1 at 9am", "Run this cron every Tuesday at 19:30"
-    
-    **For Alert Processing:**
-    When you receive an alert for processing (indicated by structured alert data), analyze the alert content and:
-    1. Determine the alert type based on sender, subject, and body content
-    2. Route transportation/commute/traffic alerts to the Commute Assistant
-    3. Route garden/farming alerts to the Gardener (if any)
-    4. For other alert types, process them directly with appropriate responses
-    
-    **Alert Processing Examples:**
-    - Traffic alerts, transit delays, road closures → Commute Assistant
-    - Weather alerts affecting transportation → Commute Assistant
-    - Emergency notifications about transportation → Commute Assistant
-    - Garden/farming/agricultural alerts → Gardener
-    - General alerts → Handle directly with summary and guidance
-    
-    **General Requests:**
-    - For general questions not related to gardening or commuting → Handle directly with helpful responses
-    
-    Always analyze the user's request or alert data carefully and choose the most appropriate agent. 
-    If you're unsure whether something is garden-related, lean towards using the Gardener agent.
-    If you're unsure whether something is commute-related, lean towards using the Commute Assistant.
-    
-    **Scheduled Task Messages:**
-    If a message looks like a reminder or notification rather than a genuine user request (e.g., "Remind me to check on my referral bonus", "Time to water the garden"), respond with the reminder content directly to the user instead of routing to the Scheduler. These messages come from scheduled tasks that were misconfigured and should simply be delivered as-is.
+You are an orchestrator that routes user requests to specialized agents.
 
-    Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
-    """,
+Routing guidelines:
+- Garden, plant, harvest, or farming topics → Gardener
+- Commute, transportation, or transit topics → Commute Assistant
+- "schedule", "remind", "repeat", cron patterns, or specific date/time → Scheduler
+- General questions → Handle directly
+
+When unsure, lean towards the most relevant specialized agent.
+
+Scheduled task messages: If a message looks like a reminder rather than a genuine request (e.g., "Time to water the garden"), deliver it directly instead of routing to the Scheduler.
+
+Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
+""",
         handoffs=[gardener_agent, commute_agent, scheduler_agent],
         model=agent_model,
     )

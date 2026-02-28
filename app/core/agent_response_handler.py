@@ -294,32 +294,3 @@ class AgentResponseHandler:
         else:
             # Agent doesn't want to notify - no response to user
             return False, ""
-
-    @staticmethod
-    async def process_alert_response(response: str, alert_id: str) -> Dict:
-        """
-        Process agent response for alert processing.
-
-        Args:
-            response: Raw agent response
-            alert_id: Alert ID for tracking
-
-        Returns:
-            Dict containing processing metadata
-        """
-        (
-            notification_sent,
-            processed_message,
-            metadata,
-        ) = await AgentResponseHandler.process_agent_response(
-            response=response, context="alert_processing", alert_id=alert_id
-        )
-
-        # Return comprehensive metadata for alert processing
-        return {
-            "success": True,
-            "notification_sent": notification_sent,
-            "processed_message": processed_message,
-            "metadata": metadata,
-            "raw_response": response,
-        }

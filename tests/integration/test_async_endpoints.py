@@ -199,49 +199,50 @@ class TestAsyncEndpoints:
             mock_telegram_client.send_message.assert_called_once()
 
     def test_process_alert_endpoint_success(
-        self, client, auth_headers, mock_config, mock_agent_runner
+        self, client, auth_headers, mock_config, mock_agent_runner, mock_telegram_client
     ):
         """Test successful alert processing."""
-        with patch("app.core.main_router.create_orchestrator_agent"):
-            with patch(
-                "app.core.agent_response_handler.AgentResponseHandler"
-            ) as mock_handler:
-                mock_handler.process_alert_response = AsyncMock(
-                    return_value={
-                        "success": True,
-                        "notification_sent": True,
-                        "processed_message": "Alert processed",
-                        "metadata": {"actions_taken": ["notification_sent"]},
-                        "raw_response": "Test response",
-                    }
-                )
+        from app.agents.alert_processor_agent import AlertDecision
 
-                with patch("app.core.main_router.Path") as mock_path:
-                    with patch("app.core.main_router.open", create=True):
-                        with patch("app.core.main_router.json") as mock_json:
-                            mock_path.return_value.exists.return_value = False
-                            mock_path.return_value.mkdir = MagicMock()
-                            mock_json.dump = MagicMock()
+        mock_decision = AlertDecision(
+            rationale="This affects commute",
+            notify_user=True,
+            message_content="Service disruption on Line 2.",
+        )
+        mock_agent_runner.run.return_value.final_output = mock_decision
+        mock_agent_runner.run.return_value.last_agent = MagicMock(
+            name="Alert Processor"
+        )
+        mock_agent_runner.run.return_value.last_agent.name = "Alert Processor"
 
-                            alert_data = {
-                                "uid": "alert_123",
-                                "subject": "Test Alert",
-                                "body": "Alert body",
-                                "sender": "test@example.com",
-                                "date": "2024-01-01T12:00:00Z",
-                                "alert_type": "email",
-                            }
+        with patch("app.core.main_router.create_alert_processor_agent"):
+            with patch("app.core.main_router.Path") as mock_path:
+                with patch("app.core.main_router.open", create=True):
+                    with patch("app.core.main_router.json") as mock_json:
+                        mock_path.return_value.exists.return_value = False
+                        mock_path.return_value.mkdir = MagicMock()
+                        mock_json.dump = MagicMock()
 
-                            response = client.post(
-                                "/process_alert", json=alert_data, headers=auth_headers
-                            )
+                        alert_data = {
+                            "uid": "alert_123",
+                            "subject": "Test Alert",
+                            "body": "Alert body",
+                            "sender": "test@example.com",
+                            "date": "2024-01-01T12:00:00Z",
+                            "alert_type": "email",
+                        }
 
-                            assert (
-                                response.status_code == 200
-                            )  # process_alert returns 200 due to JSONResponse
-                        data = response.json()
-                        assert data["success"] is True
-                        assert data["agent_processing"]["success"] is True
+                        response = client.post(
+                            "/process_alert", json=alert_data, headers=auth_headers
+                        )
+
+                        assert response.status_code == 200
+                    data = response.json()
+                    assert data["success"] is True
+                    assert data["agent_processing"]["success"] is True
+                    assert (
+                        data["agent_processing"]["primary_agent"] == "Alert Processor"
+                    )
 
     def test_clear_conversation_endpoint_success(
         self, client, auth_headers, mock_session
@@ -369,30 +370,26 @@ class TestAsyncArchitectureIntegration:
 
     @pytest.mark.asyncio
     async def test_end_to_end_alert_processing_flow(self):
-        """Test complete flow for alert processing."""
-        with patch("app.core.agent_response_handler.config") as mock_config2:
-            with patch("app.core.telegram_client.telegram_client") as mock_client:
-                mock_config2.authorized_user_id = 12345
+        """Test that AlertDecision structured output works for alert processing."""
+        from app.agents.alert_processor_agent import AlertDecision
 
-                mock_client.send_message = AsyncMock(return_value=(True, "msg_123"))
+        # Verify AlertDecision can be constructed and has expected fields
+        decision = AlertDecision(
+            rationale="This affects user's commute",
+            notify_user=True,
+            message_content="Service disruption on Line 2. Expect delays.",
+        )
 
-                # Simulate agent response for relevant alert
-                agent_response = """
-                <json>
-                {
-                    "notify_user": true,
-                    "message_content": "Service disruption on Line 2. Expect delays.",
-                    "rationale": "This affects user's commute"
-                }
-                </json>
-                """
+        assert decision.notify_user is True
+        assert "Service disruption" in decision.message_content
+        assert decision.rationale == "This affects user's commute"
 
-                from app.core.agent_response_handler import AgentResponseHandler
+        # Verify non-relevant alert decision
+        skip_decision = AlertDecision(
+            rationale="Elevator outage, not relevant",
+            notify_user=False,
+            message_content="",
+        )
 
-                result = await AgentResponseHandler.process_alert_response(
-                    agent_response, "alert_123"
-                )
-
-                assert result["success"] is True
-                assert result["notification_sent"] is True
-                assert "Service disruption" in result["processed_message"]
+        assert skip_decision.notify_user is False
+        assert skip_decision.message_content == ""

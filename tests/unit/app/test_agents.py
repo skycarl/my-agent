@@ -6,6 +6,10 @@ import pytest
 from unittest.mock import patch, MagicMock
 from decimal import Decimal
 
+from app.agents.alert_processor_agent import (
+    AlertDecision,
+    create_alert_processor_agent,
+)
 from app.agents.gardener_agent import create_gardener_agent
 from app.agents.commute_agent import create_commute_agent
 from app.agents.orchestrator_agent import create_orchestrator_agent
@@ -202,3 +206,22 @@ class TestCommuteToolDirectCalls:
 
             result = await get_recent_alerts.on_invoke_tool(None, '{"limit": 5}')
             assert "alerts" in result
+
+
+class TestAlertProcessorAgentConfiguration:
+    """Test alert processor agent configuration."""
+
+    def test_alert_processor_agent_configuration(self):
+        """Test that Alert Processor agent is properly configured."""
+        agent = create_alert_processor_agent()
+        assert agent.name == "Alert Processor"
+        assert agent.output_type is not None
+        assert agent.output_type is AlertDecision
+        assert len(agent.tools) == 2  # get_current_date, get_recent_alerts
+        assert agent.model is not None
+
+    def test_create_alert_processor_with_custom_model(self):
+        """Test that create_alert_processor_agent creates agent with specified model."""
+        agent = create_alert_processor_agent("gpt-4o")
+        assert agent.model == "gpt-4o"
+        assert agent.output_type is AlertDecision

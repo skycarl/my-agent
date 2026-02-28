@@ -12,7 +12,9 @@ from loguru import logger
 from pydantic import BaseModel
 
 from app.agents.orchestrator_agent import create_orchestrator_agent
+from app.agents.alert_processor_agent import create_alert_processor_agent
 from app.core import agent_response_handler
+from app.core.agent_response_handler import AgentResponseHandler
 from app.core.auth import verify_token
 from app.core.session_manager import get_session
 from app.core.scheduler import scheduler_service
@@ -571,83 +573,70 @@ async def process_alert(request: AlertRequest):
                 detail="OpenAI API key is not configured. Please set the OPENAI_API_KEY environment variable.",
             )
 
-        # Create orchestrator agent with default model for alert processing
-        logger.debug("Creating orchestrator agent for alert processing")
-        orchestrator_agent = create_orchestrator_agent()
+        # Create dedicated alert processor agent
+        logger.debug("Creating alert processor agent for alert processing")
+        alert_agent = create_alert_processor_agent()
 
-        # Process alert through orchestrator agent
+        # Process alert through dedicated alert processor agent
         try:
             result = await Runner.run(
-                orchestrator_agent,
+                alert_agent,
                 input=agent_input,
-                max_turns=10,
+                max_turns=5,
                 run_config=RunConfig(workflow_name="process_alert"),
             )
 
             # Extract agent processing metadata
             processing_time = (now_local() - start_time).total_seconds() * 1000
             agent_metadata.success = True
-            agent_metadata.agent_response = result.final_output
+            agent_metadata.agent_response = str(result.final_output)
             agent_metadata.processing_time_ms = int(processing_time)
-            agent_metadata.primary_agent = (
-                "Orchestrator"  # Could be updated if we can detect handoffs
-            )
+            agent_metadata.primary_agent = result.last_agent.name
 
-            alert_processing_result = await agent_response_handler.AgentResponseHandler.process_alert_response(
-                response=result.final_output, alert_id=request.uid
-            )
+            # result.final_output is an AlertDecision (structured output)
+            decision = result.final_output
 
-            # Update agent metadata based on processing result
-            if alert_processing_result["notification_sent"]:
-                agent_metadata.actions_taken = ["alert_processed", "notification_sent"]
-                logger.info(
-                    f"Successfully processed alert {request.uid} and sent notification"
+            if decision.notify_user and decision.message_content.strip():
+                # Send notification via Telegram
+                sanitized_message = AgentResponseHandler._sanitize_telegram_html(
+                    decision.message_content
                 )
-            else:
-                # Check if notification was intentionally skipped or if there was an error
-                metadata = alert_processing_result["metadata"]
-                notification_decision = metadata.get("notification_decision")
+                (
+                    success,
+                    message_id,
+                ) = await telegram_client.telegram_client.send_message(
+                    user_id=config.authorized_user_id,
+                    message=sanitized_message,
+                    parse_mode="HTML",
+                )
 
-                if (
-                    notification_decision
-                    and notification_decision.get("notify_user") is False
-                ):
+                if success:
                     agent_metadata.actions_taken = [
                         "alert_processed",
-                        "notification_not_needed",
-                    ]
-                    rationale = notification_decision.get("rationale", "")
-                    logger.info(
-                        f"Agent determined no notification needed for alert {request.uid}: {rationale}"
-                    )
-                elif metadata.get("error"):
-                    agent_metadata.actions_taken = [
-                        "alert_processed",
-                        "notification_error",
-                    ]
-                    logger.error(
-                        f"Error processing alert {request.uid}: {metadata['error']}"
-                    )
-                elif not metadata.get("has_json"):
-                    # Agent response had no JSON structure - likely a regular response
-                    agent_metadata.actions_taken = [
-                        "alert_processed",
-                        "no_json_structure",
+                        "notification_sent",
                     ]
                     logger.info(
-                        f"Alert {request.uid} processed with regular response (no JSON structure)"
+                        f"Successfully processed alert {request.uid} and sent notification"
                     )
                 else:
                     agent_metadata.actions_taken = [
                         "alert_processed",
-                        "notification_skipped",
+                        "notification_failed",
                     ]
-                    logger.info(
-                        f"Alert {request.uid} processed but no notification sent"
+                    logger.warning(
+                        f"Alert {request.uid} processed but notification send failed"
                     )
+            else:
+                agent_metadata.actions_taken = [
+                    "alert_processed",
+                    "notification_not_needed",
+                ]
+                logger.info(
+                    f"Agent determined no notification needed for alert {request.uid}: {decision.rationale}"
+                )
 
             logger.info(f"Successfully processed alert {request.uid} through agents")
-            logger.debug(f"Agent response: {result.final_output}")
+            logger.debug(f"Agent decision: {decision}")
 
         except Exception as e:
             processing_time = (now_local() - start_time).total_seconds() * 1000
