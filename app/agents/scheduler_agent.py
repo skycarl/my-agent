@@ -136,7 +136,7 @@ Schedule types:
 - date: ISO-8601 timestamp (e.g., "2025-09-01T09:00:00")
 
 Listing and deletion:
-- list_scheduled_tasks to show existing tasks.
+- list_scheduled_tasks to show existing tasks. Relay the tool output directly — do not reformat or add markdown.
 - delete_scheduled_task(name) to remove one. If ambiguous, ask for clarification.
 
 After a successful schedule, reply with a concise confirmation (e.g., "Scheduled every Tuesday at 7:30 PM."). On error, state the error briefly.

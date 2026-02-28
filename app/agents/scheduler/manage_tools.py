@@ -34,20 +34,21 @@ async def list_scheduled_tasks(
         lines: list[str] = []
         for t in tasks:
             name = str(t.get("name", ""))
-            tid = str(t.get("id", ""))
             enabled = bool(t.get("enabled", True))
-            task_mode = t.get("mode", "agent")
             schedule = t.get("schedule", {}) or {}
             s_type = schedule.get("type", "?")
-            extra = (
-                schedule.get("expression")
-                or str(schedule.get("interval_seconds"))
-                or schedule.get("run_at")
-                or ""
-            )
-            lines.append(
-                f"- {name} [{tid}] [mode={task_mode}] {'ENABLED' if enabled else 'DISABLED'} ({s_type} {extra})"
-            )
+
+            if s_type == "cron":
+                schedule_desc = f"cron: {schedule.get('expression', '?')}"
+            elif s_type == "interval":
+                schedule_desc = f"every {schedule.get('interval_seconds', '?')}s"
+            elif s_type == "date":
+                schedule_desc = f"one-time: {schedule.get('run_at', '?')}"
+            else:
+                schedule_desc = s_type
+
+            status = "enabled" if enabled else "DISABLED"
+            lines.append(f"- {name} ({status}) — {schedule_desc}")
         return "\n".join(lines)
     except Exception as e:
         logger.error(f"Failed to list scheduled tasks via tool: {e}")
