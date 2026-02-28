@@ -10,10 +10,13 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.date import DateTrigger
+from croniter import croniter
+from filelock import FileLock
 from loguru import logger
 
 from app.core.settings import config
 from app.core.task_manager import task_manager
+from app.core.task_store import get_config_lock_path
 from app.models.tasks import TaskConfig, TasksConfiguration
 from app.core.timezone_utils import (
     now_local_isoformat,
@@ -63,8 +66,10 @@ class SchedulerService:
         config_file = self._get_config_file_path()
 
         if not config_file.exists():
-            logger.warning(f"Tasks configuration file not found: {config_file}")
-            return None
+            logger.info(
+                f"Tasks configuration file not found, starting with empty task list: {config_file}"
+            )
+            return TasksConfiguration()
 
         try:
             with open(config_file, "r", encoding="utf-8") as f:
@@ -145,6 +150,12 @@ class SchedulerService:
                 if len(cron_parts) != 5:
                     logger.error(
                         f"Task {task.id}: Invalid cron expression format: {task.schedule.expression}"
+                    )
+                    return False
+
+                if not croniter.is_valid(task.schedule.expression):
+                    logger.error(
+                        f"Task {task.id}: Invalid cron expression: {task.schedule.expression}"
                     )
                     return False
 
@@ -251,24 +262,25 @@ class SchedulerService:
             return
 
         try:
-            with open(config_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            with FileLock(get_config_lock_path()):
+                with open(config_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
 
-            original_count = len(data.get("tasks", []))
-            if config.one_time_task_cleanup_mode == "remove":
-                data["tasks"] = [
-                    t for t in data.get("tasks", []) if t.get("id") != task_id
-                ]
-            else:
-                for t in data.get("tasks", []):
-                    if t.get("id") == task_id:
-                        t["enabled"] = False
+                original_count = len(data.get("tasks", []))
+                if config.one_time_task_cleanup_mode == "remove":
+                    data["tasks"] = [
+                        t for t in data.get("tasks", []) if t.get("id") != task_id
+                    ]
+                else:
+                    for t in data.get("tasks", []):
+                        if t.get("id") == task_id:
+                            t["enabled"] = False
 
-            # Update last_modified
-            data["last_modified"] = now_local_isoformat()
+                # Update last_modified
+                data["last_modified"] = now_local_isoformat()
 
-            with open(config_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+                with open(config_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
 
             # Reload scheduler to reflect changes
             if (

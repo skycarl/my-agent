@@ -11,9 +11,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
+from filelock import FileLock
 
 from app.core.settings import config
 from app.core.timezone_utils import now_local, parse_datetime_in_scheduler_tz
+
+
+def get_config_lock_path() -> str:
+    """Return the path for the file lock protecting scheduled_tasks.json."""
+    return config.tasks_config_path + ".lock"
 
 
 def append_task_to_config(new_task_data: Dict[str, Any]) -> str:
@@ -28,37 +34,38 @@ def append_task_to_config(new_task_data: Dict[str, Any]) -> str:
     storage_file = Path(config.tasks_config_path)
     storage_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # Load existing
-    if storage_file.exists():
-        try:
-            data = json.loads(storage_file.read_text(encoding="utf-8"))
-        except Exception:
+    with FileLock(get_config_lock_path()):
+        # Load existing
+        if storage_file.exists():
+            try:
+                data = json.loads(storage_file.read_text(encoding="utf-8"))
+            except Exception:
+                data = {"version": "1.0", "tasks": []}
+        else:
             data = {"version": "1.0", "tasks": []}
-    else:
-        data = {"version": "1.0", "tasks": []}
 
-    # ID (use UUIDs to avoid collisions even after deletions)
-    task_id = new_task_data.get("id") or uuid.uuid4().hex
-    new_task_data["id"] = task_id
+        # ID (use UUIDs to avoid collisions even after deletions)
+        task_id = new_task_data.get("id") or uuid.uuid4().hex
+        new_task_data["id"] = task_id
 
-    # Normalize date schedule run_at if present
-    schedule = new_task_data.get("schedule", {})
-    if schedule.get("type") == "date" and schedule.get("run_at") is not None:
-        try:
-            run_at_dt = parse_datetime_in_scheduler_tz(schedule["run_at"])
-            schedule["run_at"] = run_at_dt.isoformat()
-            new_task_data["schedule"] = schedule
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        # Normalize date schedule run_at if present
+        schedule = new_task_data.get("schedule", {})
+        if schedule.get("type") == "date" and schedule.get("run_at") is not None:
+            try:
+                run_at_dt = parse_datetime_in_scheduler_tz(schedule["run_at"])
+                schedule["run_at"] = run_at_dt.isoformat()
+                new_task_data["schedule"] = schedule
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=str(e))
 
-    # Append and write
-    data.setdefault("tasks", []).append(new_task_data)
-    data["last_modified"] = now_local().isoformat()
-    storage_file.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+        # Append and write
+        data.setdefault("tasks", []).append(new_task_data)
+        data["last_modified"] = now_local().isoformat()
+        storage_file.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
 
-    return task_id
+        return task_id
 
 
 def _read_storage_file() -> Dict[str, Any]:
@@ -110,16 +117,18 @@ def delete_task_by_id(task_id: str) -> bool:
     Returns True if a task was removed, False if not found.
     """
     storage_file = Path(config.tasks_config_path)
-    data = _read_storage_file()
-    original_len = len(data.get("tasks", []))
-    data["tasks"] = [t for t in data.get("tasks", []) if t.get("id") != task_id]
 
-    if len(data.get("tasks", [])) == original_len:
-        return False
+    with FileLock(get_config_lock_path()):
+        data = _read_storage_file()
+        original_len = len(data.get("tasks", []))
+        data["tasks"] = [t for t in data.get("tasks", []) if t.get("id") != task_id]
 
-    data["last_modified"] = now_local().isoformat()
-    storage_file.parent.mkdir(parents=True, exist_ok=True)
-    storage_file.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-    return True
+        if len(data.get("tasks", [])) == original_len:
+            return False
+
+        data["last_modified"] = now_local().isoformat()
+        storage_file.parent.mkdir(parents=True, exist_ok=True)
+        storage_file.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        return True

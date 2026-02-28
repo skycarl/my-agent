@@ -35,6 +35,10 @@ async def schedule_task(
         if schedule_type == "cron":
             if not cron_expression:
                 return "Error: cron_expression is required for cron schedule"
+            from croniter import croniter
+
+            if not croniter.is_valid(cron_expression):
+                return f"Error: Invalid cron expression '{cron_expression}'"
             schedule = {"type": "cron", "expression": cron_expression}
         elif schedule_type == "interval":
             if interval_seconds is None:

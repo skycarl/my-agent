@@ -3,8 +3,8 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-from agents import Runner
-from fastapi import APIRouter, Depends, HTTPException
+from agents import Runner, RunConfig
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from loguru import logger
@@ -254,7 +254,7 @@ async def delete_task(task_id: str):
 
 
 @router.post("/agent_response", status_code=200, dependencies=[Depends(verify_token)])
-async def create_agent_response(request: AgentRequest):
+async def create_agent_response(request_body: AgentRequest, request: Request):
     """
     Process user message through agents and send response directly via Telegram.
 
@@ -270,20 +270,20 @@ async def create_agent_response(request: AgentRequest):
     """
     try:
         # Extract user message from request
-        if request.input is not None:
-            user_message = request.input
-            logger.debug(f"Received single input request: {request.input}")
-        elif request.messages is not None and len(request.messages) > 0:
+        if request_body.input is not None:
+            user_message = request_body.input
+            logger.debug(f"Received single input request: {request_body.input}")
+        elif request_body.messages is not None and len(request_body.messages) > 0:
             # Take the last message as the new user input
-            user_message = request.messages[-1].content
+            user_message = request_body.messages[-1].content
             logger.debug(
-                f"Received conversation with {len(request.messages)} messages, processing last message"
+                f"Received conversation with {len(request_body.messages)} messages, processing last message"
             )
         else:
             raise HTTPException(status_code=400, detail="No input or messages provided")
 
         # Determine which model to use (default to config default for agents)
-        model = request.model or config.default_model
+        model = request_body.model or config.default_model
         logger.debug(f"Using model '{model}' for this agent request")
 
         # Validate the model
@@ -309,10 +309,27 @@ async def create_agent_response(request: AgentRequest):
         # The session automatically persists full conversation state
         # (including tool calls, results, and handoff context)
         logger.debug("Running agent workflow with Orchestrator")
-        session = get_session()
-        result = await Runner.run(
-            orchestrator_agent, input=user_message, session=session
-        )
+        is_scheduled = request.headers.get("X-Scheduled-Task") == "true"
+
+        if is_scheduled:
+            logger.debug(
+                "Scheduled task invocation — running without conversation session"
+            )
+            result = await Runner.run(
+                orchestrator_agent,
+                input=user_message,
+                max_turns=10,
+                run_config=RunConfig(workflow_name="scheduled_task"),
+            )
+        else:
+            session = get_session()
+            result = await Runner.run(
+                orchestrator_agent,
+                input=user_message,
+                session=session,
+                max_turns=10,
+                run_config=RunConfig(workflow_name="agent_response"),
+            )
 
         logger.debug("Agent workflow completed successfully")
         logger.debug(f"Response: {result.final_output}")
@@ -458,7 +475,12 @@ async def process_alert(request: AlertRequest):
 
         # Process alert through orchestrator agent
         try:
-            result = await Runner.run(orchestrator_agent, input=agent_input)
+            result = await Runner.run(
+                orchestrator_agent,
+                input=agent_input,
+                max_turns=10,
+                run_config=RunConfig(workflow_name="process_alert"),
+            )
 
             # Extract agent processing metadata
             processing_time = (now_local() - start_time).total_seconds() * 1000

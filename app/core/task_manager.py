@@ -20,6 +20,8 @@ from app.models.tasks import (
     TelegramMessageRequest,
 )
 
+ALLOWED_TASK_ENDPOINTS = frozenset({"/agent_response"})
+
 
 class TaskManager:
     """Manages task execution and result storage."""
@@ -164,13 +166,23 @@ class TaskManager:
         if not task.api_call:
             return False, {"error": "No API call configuration provided"}
 
+        # Validate endpoint against allowlist
+        normalized_endpoint = "/" + task.api_call.endpoint.lstrip("/")
+        if normalized_endpoint not in ALLOWED_TASK_ENDPOINTS:
+            error_msg = f"Endpoint not allowed: {task.api_call.endpoint}. Allowed: {', '.join(sorted(ALLOWED_TASK_ENDPOINTS))}"
+            logger.error(f"Task '{task.id}': {error_msg}")
+            return False, {"error": error_msg}
+
         try:
             # Prepare headers
-            headers = {"Content-Type": "application/json", "X-Token": config.x_token}
-
-            # Add any additional headers
+            headers = {}
             if task.api_call.headers:
                 headers.update(task.api_call.headers)
+            # Ensure auth and content-type cannot be overridden by task config
+            headers["Content-Type"] = "application/json"
+            headers["X-Token"] = config.x_token
+            # Signal to endpoint that this is a scheduled invocation
+            headers["X-Scheduled-Task"] = "true"
 
             # Build the full URL
             base_url = config.app_url.rstrip("/")

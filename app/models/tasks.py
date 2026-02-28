@@ -20,7 +20,9 @@ class TaskSchedule(BaseModel):
         default=None, description="Cron expression (e.g., '0 7 * * *' for daily at 7am)"
     )
     interval_seconds: Optional[int] = Field(
-        default=None, description="Interval in seconds for interval-based schedules"
+        default=None,
+        ge=1,
+        description="Interval in seconds for interval-based schedules",
     )
     run_at: Optional[datetime] = Field(
         default=None,
