@@ -11,6 +11,6 @@ async def verify_token(x_token: str = Header(alias="X-Token")):
 
     if x_token != config.x_token:
         logger.warning("Authentication failed: token mismatch")
-        raise HTTPException(status_code=400, detail="X-Token header invalid")
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
 
     logger.debug("Authentication successful")

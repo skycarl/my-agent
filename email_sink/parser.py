@@ -88,25 +88,3 @@ class EmailParser:
         except Exception as e:
             logger.error(f"Failed to parse email message {uid}: {e}")
             return None
-
-    @staticmethod
-    def extract_commute_info(alert: EmailAlert) -> dict:
-        """
-        Extract commute-specific information from an email alert.
-        This is a placeholder for commute-specific parsing logic.
-
-        Args:
-            alert: EmailAlert object
-
-        Returns:
-            Dictionary with extracted commute information
-        """
-        # This is where you would add domain-specific parsing
-        # For now, return basic structure
-        return {
-            "alert_type": "commute",
-            "raw_subject": alert.subject,
-            "raw_body": alert.body,
-            "timestamp": alert.date.isoformat(),
-            "source": alert.sender,
-        }

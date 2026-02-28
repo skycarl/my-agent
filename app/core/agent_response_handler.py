@@ -74,6 +74,24 @@ class AgentResponseHandler:
         return True, ""
 
     @staticmethod
+    def _sanitize_telegram_html(text: str) -> str:
+        """Sanitize text for safe Telegram HTML delivery.
+
+        Strips all HTML tags except Telegram's allowed formatting tags,
+        preventing injection of malicious HTML from agent responses.
+        """
+        import re
+
+        # Strip all HTML tags - Telegram only supports a limited subset
+        # and we don't need any of them for alert notifications
+        sanitized = re.sub(r"<[^>]+>", "", text)
+        # Escape HTML special characters to prevent injection
+        sanitized = (
+            sanitized.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        )
+        return sanitized
+
+    @staticmethod
     async def send_telegram_notification(message: str) -> Tuple[bool, Optional[str]]:
         """
         Send a notification via Telegram.
@@ -93,9 +111,10 @@ class AgentResponseHandler:
                 logger.warning("No authorized user ID configured for notifications")
                 return False, "No authorized user configured"
 
+            sanitized_message = AgentResponseHandler._sanitize_telegram_html(message)
             success, message_id = await telegram_client.send_message(
                 user_id=target_user_id,
-                message=message,
+                message=sanitized_message,
                 parse_mode="HTML",
             )
 

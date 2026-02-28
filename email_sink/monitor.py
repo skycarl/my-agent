@@ -165,7 +165,7 @@ class EmailMonitorService:
                     full_url,
                     json=alert_request.model_dump(mode="json"),
                     headers=headers,
-                    timeout=10.0,
+                    timeout=60.0,
                 )
 
                 if response.status_code in [200, 201]:

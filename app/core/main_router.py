@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from pathlib import Path
 from typing import List, Optional
 
@@ -38,6 +39,14 @@ os.environ["OPENAI_TIMEOUT"] = str(config.openai_timeout)
 os.environ["OPENAI_MAX_RETRIES"] = str(config.openai_max_retries)
 
 router = APIRouter()
+
+
+def _sanitize_alert_body(body: str, max_length: int = 2000) -> str:
+    """Strip URLs, HTML tags, and truncate body for safe agent processing."""
+    body = re.sub(r"https?://\S+", "[link removed]", body)
+    body = re.sub(r"<[^>]+>", "", body)
+    body = body[:max_length]
+    return body.strip()
 
 
 class Message(BaseModel):
@@ -500,11 +509,51 @@ async def process_alert(request: AlertRequest):
     )
 
     try:
+        # Load existing alerts early for dedup check
+        storage_dir = Path(config.storage_path)
+        storage_dir.mkdir(exist_ok=True)
+        alerts_file = storage_dir / "commute_alerts.json"
+
+        alerts = []
+        if alerts_file.exists():
+            try:
+                with open(alerts_file, "r", encoding="utf-8") as f:
+                    alerts = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError) as e:
+                logger.warning(f"Error reading existing alerts file: {e}")
+                alerts = []
+
+        # UID deduplication check
+        existing_uids = {alert["uid"] for alert in alerts}
+        if request.uid in existing_uids:
+            logger.info(f"Duplicate alert UID {request.uid}, skipping processing")
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "message": "Duplicate alert, already processed",
+                    "alert_id": "",
+                },
+            )
+
+        # Sender allowlist validation
+        allowed_patterns = [
+            p.strip() for p in config.email_sender_patterns.split(",") if p.strip()
+        ]
+        if allowed_patterns and not any(
+            pattern in request.sender for pattern in allowed_patterns
+        ):
+            logger.warning(f"Alert from unauthorized sender: {request.sender}")
+            raise HTTPException(status_code=403, detail="Sender not in allowlist")
+
+        # Sanitize body for agent processing (preserve original for storage)
+        sanitized_body = _sanitize_alert_body(request.body)
+
         # Format alert as instructions for the orchestrator agent
         alert_data = {
             "uid": request.uid,
             "subject": request.subject,
-            "body": request.body,
+            "body": sanitized_body,
             "sender": request.sender,
             "date": request.date.isoformat(),
             "alert_type": request.alert_type,
@@ -609,24 +658,7 @@ async def process_alert(request: AlertRequest):
             logger.error(f"Agent processing failed for alert {request.uid}: {e}")
             # Continue to store the alert even if agent processing failed
 
-        # Store alert with agent metadata
-        storage_dir = Path(config.storage_path)
-        storage_dir.mkdir(exist_ok=True)
-
-        # Define the alerts file path (keeping same file name for compatibility)
-        alerts_file = storage_dir / "commute_alerts.json"
-
-        # Load existing alerts or create empty list
-        alerts = []
-        if alerts_file.exists():
-            try:
-                with open(alerts_file, "r", encoding="utf-8") as f:
-                    alerts = json.load(f)
-            except (json.JSONDecodeError, FileNotFoundError) as e:
-                logger.warning(f"Error reading existing alerts file: {e}")
-                alerts = []
-
-        # Create the alert record with agent metadata
+        # Create the alert record with agent metadata (uses original body)
         alert_record = {
             "id": f"alert_{len(alerts) + 1}_{request.uid}",
             "uid": request.uid,
@@ -639,8 +671,10 @@ async def process_alert(request: AlertRequest):
             "agent_processing": agent_metadata.model_dump(),
         }
 
-        # Add to alerts list
+        # Add to alerts list and cap at 500 most recent
         alerts.append(alert_record)
+        if len(alerts) > 500:
+            alerts = alerts[-500:]
 
         # Write back to file with proper error handling
         try:

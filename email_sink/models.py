@@ -33,9 +33,9 @@ class EmailSinkConfig(BaseModel):
 class AlertRequest(BaseModel):
     """Request model for posting alerts to internal endpoints."""
 
-    uid: str
-    subject: str
-    body: str
-    sender: str
+    uid: str = Field(max_length=200)
+    subject: str = Field(max_length=1000)
+    body: str = Field(max_length=50000)
+    sender: str = Field(max_length=500)
     date: datetime
-    alert_type: str = Field(default="email", description="Type of alert")
+    alert_type: str = Field(default="email", max_length=50, description="Type of alert")

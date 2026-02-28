@@ -6,7 +6,6 @@ from unittest.mock import Mock, patch
 from datetime import datetime
 
 from email_sink.parser import EmailParser
-from email_sink.models import EmailAlert
 
 
 class TestEmailParser:
@@ -193,25 +192,6 @@ class TestEmailParser:
             alert = EmailParser.parse_raw_message("12345", b"Invalid email")
 
         assert alert is None
-
-    def test_extract_commute_info(self):
-        """Test extracting commute-specific information."""
-        date = datetime(2025, 1, 15, 10, 30, 0)
-        alert = EmailAlert(
-            uid="12345",
-            subject="Traffic Alert",
-            body="Heavy traffic on I-95",
-            sender="alerts@traffic.gov",
-            date=date,
-        )
-
-        commute_info = EmailParser.extract_commute_info(alert)
-
-        assert commute_info["alert_type"] == "commute"
-        assert commute_info["raw_subject"] == "Traffic Alert"
-        assert commute_info["raw_body"] == "Heavy traffic on I-95"
-        assert commute_info["timestamp"] == date.isoformat()
-        assert commute_info["source"] == "alerts@traffic.gov"
 
     def test_parse_with_multiple_plain_text_parts(self):
         """Test parsing email with multiple plain text parts."""

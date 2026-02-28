@@ -32,8 +32,8 @@ async def test_verify_token_invalid():
     with pytest.raises(HTTPException) as exc_info:
         await verify_token("invalid_token")
 
-    assert exc_info.value.status_code == 400
-    assert "X-Token header invalid" in str(exc_info.value.detail)
+    assert exc_info.value.status_code == 401
+    assert "Invalid authentication token" in str(exc_info.value.detail)
 
 
 def test_healthcheck_endpoint():
