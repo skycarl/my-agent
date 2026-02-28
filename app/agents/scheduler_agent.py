@@ -13,6 +13,8 @@ from app.agents.scheduler.manage_tools import (
     list_scheduled_tasks,
     delete_scheduled_task,
     toggle_scheduled_task,
+    edit_scheduled_task,
+    run_scheduled_task_now,
 )
 
 
@@ -140,6 +142,8 @@ Listing and deletion:
 - list_scheduled_tasks to show existing tasks. Relay the tool output directly — do not reformat or add markdown.
 - delete_scheduled_task(name) to remove one. If ambiguous, ask for clarification.
 - toggle_scheduled_task(name) to enable or disable a task without deleting it.
+- edit_scheduled_task(name, schedule_type, ...) to change a task's schedule without recreating it.
+- run_scheduled_task_now(name) to trigger a task immediately for testing or on-demand use.
 
 After a successful schedule, reply with a concise confirmation (e.g., "Scheduled every Tuesday at 7:30 PM."). On error, state the error briefly.
 
@@ -152,6 +156,8 @@ Be concise and to the point. Answer the user's question directly and do not offe
             list_scheduled_tasks,
             delete_scheduled_task,
             toggle_scheduled_task,
+            edit_scheduled_task,
+            run_scheduled_task_now,
         ],
         model=agent_model,
     )

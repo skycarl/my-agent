@@ -132,6 +132,46 @@ def toggle_task_by_id(task_id: str) -> Optional[bool]:
         return None
 
 
+def update_task_schedule(
+    task_id: str,
+    schedule_type: str,
+    cron_expression: Optional[str] = None,
+    interval_seconds: Optional[int] = None,
+    run_at: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Update a task's schedule by its ID.
+
+    Returns the updated schedule dict, or None if the task was not found.
+    """
+    storage_file = Path(config.tasks_config_path)
+
+    with FileLock(get_config_lock_path()):
+        data = _read_storage_file()
+        for t in data.get("tasks", []):
+            if t.get("id") == task_id:
+                if schedule_type == "cron":
+                    schedule = {"type": "cron", "expression": cron_expression}
+                elif schedule_type == "interval":
+                    schedule = {
+                        "type": "interval",
+                        "interval_seconds": int(interval_seconds),
+                    }
+                elif schedule_type == "date":
+                    dt = parse_datetime_in_scheduler_tz(run_at)
+                    schedule = {"type": "date", "run_at": dt.isoformat()}
+                else:
+                    return None
+
+                t["schedule"] = schedule
+                data["last_modified"] = now_local().isoformat()
+                storage_file.write_text(
+                    json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
+                return schedule
+        return None
+
+
 def delete_task_by_id(task_id: str) -> bool:
     """
     Delete a task by its ID from the configuration storage.
