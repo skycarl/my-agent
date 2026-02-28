@@ -27,7 +27,7 @@ There are 4 main agents:
 
 ### Gardener
 
-The `Gardener` agent manages your garden data: it helps you track plants, record harvests, and view simple statistics about my yields. It is backed by MCP tools that read and write to the garden store, so answers and actions are grounded in structured data rather than guesswork. It uses the tools `get_plants`, `add_plant`, `get_produce_counts`, and `add_produce` to add/fetch records to/from persistent storage.
+The `Gardener` agent manages your garden data: it helps you track plants, record harvests, and view simple statistics about my yields. It uses the tools `get_plants`, `add_plant`, `get_produce_counts`, and `add_produce` to add/fetch records to/from persistent storage.
 
 ### Commute
 
@@ -76,17 +76,6 @@ make docker-up
 # Stop services
 make docker-down
 ```
-
-## MCP Integration
-
-The application includes a Model Context Protocol (MCP) integration that automatically makes garden management tools available to the AI assistant. The MCP server exposes tools for:
-
-- **get_plants**: List all plants in the garden with their yields
-- **add_plant**: Add a new plant to the garden
-- **get_produce_counts**: Get harvest statistics for a specific plant
-- **add_produce**: Record a new harvest for a plant
-
-
 
 # Ideas
 

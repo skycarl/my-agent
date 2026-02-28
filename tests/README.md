@@ -10,7 +10,6 @@ tests/
 ├── unit/                    # Unit tests by service
 │   ├── app/                 # App service unit tests
 │   ├── telegram_bot/        # Telegram bot service unit tests
-│   └── my_mcp/             # MCP service unit tests
 ├── integration/             # Integration tests between services
 └── e2e/                    # End-to-end tests
 ```
@@ -49,7 +48,6 @@ make test-e2e
 # Run tests for specific services
 make test-app
 make test-telegram
-make test-mcp
 
 # Run with pytest directly
 uv run pytest tests/unit/app/           # App unit tests only
@@ -73,7 +71,6 @@ Use pytest markers to categorize tests:
 - `@pytest.mark.slow` - Tests that take longer to run
 - `@pytest.mark.app` - App service tests
 - `@pytest.mark.telegram` - Telegram bot tests
-- `@pytest.mark.mcp` - MCP service tests
 
 ### Fixtures
 - Shared fixtures are defined in `conftest.py`

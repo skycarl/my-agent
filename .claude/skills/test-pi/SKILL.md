@@ -13,7 +13,6 @@ Test the my-agent app running on the Raspberry Pi at `192.168.1.247`.
 
 - **Pi host**: `192.168.1.247` (alias: `pi5` = `ssh sky@192.168.1.247`)
 - **App port**: `8001` (FastAPI)
-- **MCP port**: `8002` (FastMCP)
 - **Base URL**: `http://192.168.1.247:8001`
 - **Auth header**: `X-Token: 123`
 
@@ -61,11 +60,10 @@ ssh sky@192.168.1.247 'docker compose -f /home/sky/apps/my-agent/docker-compose.
 When running a full test (`/test-pi` with no arguments), run this sequence:
 
 1. **Connectivity**: Ping the Pi
-2. **Docker**: Check all 4 containers are running (app, telegram_bot, mcp_server, email_sink)
+2. **Docker**: Check all 3 containers are running (app, telegram_bot, email_sink)
 3. **Health**: Hit `/healthcheck`
 4. **Models**: Hit `/models` and verify default model
 5. **Tasks**: Hit `GET /tasks` to list scheduled tasks
-6. **MCP**: Check MCP server is responding on port 8002
 
 When `$ARGUMENTS` specifies a particular endpoint or action, test just that.
 
