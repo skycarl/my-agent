@@ -3,43 +3,12 @@ Test agent functionality.
 """
 
 import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, MagicMock
+from decimal import Decimal
 
 from app.agents.gardener_agent import create_gardener_agent
 from app.agents.commute_agent import create_commute_agent
 from app.agents.orchestrator_agent import create_orchestrator_agent
-
-
-class TestMCPToolIntegration:
-    """Test MCP tool integration functionality."""
-
-    @pytest.mark.asyncio
-    async def test_mcp_client_call_tool_success(self):
-        """Test MCP client tool call with successful response."""
-        with patch("app.core.mcp_client.mcp_client") as mock_mcp:
-            mock_mcp.call_tool = AsyncMock(
-                return_value={"content": "Plant list: tomatoes, carrots"}
-            )
-
-            # Test the client directly
-            from app.core.mcp_client import mcp_client
-
-            result = await mcp_client.call_tool("get_plants", {})
-
-            assert result == {"content": "Plant list: tomatoes, carrots"}
-            mock_mcp.call_tool.assert_called_once_with("get_plants", {})
-
-    @pytest.mark.asyncio
-    async def test_mcp_client_call_tool_error(self):
-        """Test MCP client tool call with error response."""
-        with patch("app.core.mcp_client.mcp_client") as mock_mcp:
-            mock_mcp.call_tool = AsyncMock(return_value={"error": "Database not found"})
-
-            from app.core.mcp_client import mcp_client
-
-            result = await mcp_client.call_tool("get_plants", {})
-
-            assert result == {"error": "Database not found"}
 
 
 class TestAgentConfiguration:
@@ -142,3 +111,94 @@ class TestAgentFactoryFunctions:
         # Verify handoffs in orchestrator also use the same model
         for handoff_agent in orchestrator.handoffs:
             assert handoff_agent.model == orchestrator.model
+
+
+class TestGardenToolDirectCalls:
+    """Test that gardener tools call garden_service directly."""
+
+    @pytest.mark.asyncio
+    async def test_get_plants_tool(self):
+        """Test get_plants tool returns garden data."""
+        mock_plants = {"plants": {"tomatoes": MagicMock()}}
+        with patch(
+            "app.agents.gardener_agent.svc_get_plants", return_value=mock_plants
+        ):
+            from app.agents.gardener_agent import get_plants
+
+            result = await get_plants.on_invoke_tool(None, "")
+            assert "plants" in result
+
+    @pytest.mark.asyncio
+    async def test_add_plant_tool(self):
+        """Test add_plant tool calls service."""
+        with patch(
+            "app.agents.gardener_agent.svc_add_plant",
+            return_value={"message": "Plant 'basil' added successfully"},
+        ):
+            from app.agents.gardener_agent import add_plant
+
+            result = await add_plant.on_invoke_tool(None, '{"plant_name": "basil"}')
+            assert "added successfully" in result
+
+    @pytest.mark.asyncio
+    async def test_get_produce_counts_tool(self):
+        """Test get_produce_counts tool calls service."""
+        from app.agents.gardener.garden_service import ProduceCountsResponse
+
+        mock_response = ProduceCountsResponse(
+            plant_name="tomatoes", total_yield=Decimal("10"), harvest_count=3
+        )
+        with patch(
+            "app.agents.gardener_agent.svc_get_produce_counts",
+            return_value=mock_response,
+        ):
+            from app.agents.gardener_agent import get_produce_counts
+
+            result = await get_produce_counts.on_invoke_tool(
+                None, '{"plant_name": "tomatoes"}'
+            )
+            assert "tomatoes" in result
+
+    @pytest.mark.asyncio
+    async def test_add_produce_tool(self):
+        """Test add_produce tool calls service."""
+        with patch(
+            "app.agents.gardener_agent.svc_add_produce",
+            return_value={"message": "Added 5 to tomatoes. Total yield is now 15"},
+        ):
+            from app.agents.gardener_agent import add_produce
+
+            result = await add_produce.on_invoke_tool(
+                None,
+                '{"plant_name": "tomatoes", "amount": 5.0, "notes": ""}',
+            )
+            assert "Added 5" in result
+
+
+class TestCommuteToolDirectCalls:
+    """Test that commute tools call commute_service directly."""
+
+    @pytest.mark.asyncio
+    async def test_get_current_date_tool(self):
+        """Test get_current_date tool returns date info."""
+        from app.agents.commute_agent import get_current_date
+
+        result = await get_current_date.on_invoke_tool(None, "")
+        assert "current_date" in result
+        assert "current_day" in result
+        assert "current_time" in result
+
+    @pytest.mark.asyncio
+    async def test_get_recent_alerts_tool(self):
+        """Test get_recent_alerts tool calls service."""
+        from app.agents.commute.commute_service import RecentAlertsResponse
+
+        mock_response = RecentAlertsResponse(alerts=[], total_stored=0)
+        with patch(
+            "app.agents.commute_agent.svc_get_recent_alerts",
+            return_value=mock_response,
+        ):
+            from app.agents.commute_agent import get_recent_alerts
+
+            result = await get_recent_alerts.on_invoke_tool(None, '{"limit": 5}')
+            assert "alerts" in result

@@ -64,14 +64,6 @@ class Config(BaseSettings):
         description="Maximum number of messages to keep in conversation history",
     )
 
-    # MCP Configuration
-    mcp_server_url: str = Field(
-        default="http://localhost:8001/mcp", description="URL of the MCP server"
-    )
-    enable_mcp_tools: bool = Field(
-        default=True, description="Enable MCP tools integration"
-    )
-
     # Garden Database Configuration
     garden_db_path: str = Field(
         default="storage/garden_db.json",

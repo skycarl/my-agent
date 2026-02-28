@@ -9,7 +9,6 @@ help:
 	@echo "  test-e2e       - Run end-to-end tests only"
 	@echo "  test-app       - Run app service unit tests"
 	@echo "  test-telegram  - Run telegram bot unit tests"
-	@echo "  test-mcp       - Run MCP service unit tests"
 	@echo "  lint           - Run ruff check for linting"
 	@echo "  run            - Start the FastAPI server with reload"
 	@echo "  run-bot        - Start the Telegram bot"
@@ -36,9 +35,6 @@ test-app:
 test-telegram:
 	uv run pytest tests/unit/telegram_bot/
 
-test-mcp:
-	uv run pytest tests/unit/my_mcp/
-
 lint:
 	uv run ruff format && uv run ruff check
 
@@ -47,9 +43,6 @@ run:
 
 run-bot:
 	uv run python -m app.telegram.main
-
-run-mcp:
-	uv run python -m my_mcp.main
 
 pre-commit:
 	uv run pre-commit run --all-files

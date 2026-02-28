@@ -1,3 +1,0 @@
-"""
-Garden management tools.
-"""

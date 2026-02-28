@@ -35,25 +35,6 @@ services:
       - TERM=xterm-256color
       - FORCE_COLOR=1
 
-  mcp-server:
-    container_name: mcp_server
-    build: 
-      context: .
-      dockerfile: .docker/Dockerfile
-    command: bash -c "uv run python -m my_mcp.main"
-    tty: true
-    ports:
-      - 8002:8002
-    restart: always
-    networks:
-      - app-network
-    volumes:
-      - .:/app/workspace
-    environment:
-      - GARDEN_DB_PATH=/app/workspace/storage/garden_db.json
-      - TERM=xterm-256color
-      - FORCE_COLOR=1
-
   email-sink:
     container_name: email_sink
     build: 

@@ -16,15 +16,6 @@ def mock_config():
 
 
 @pytest.fixture
-def mock_openai_client():
-    """Fixture to provide a mocked OpenAI client."""
-    with patch("app.core.openai_client.OpenAI") as mock_client:
-        mock_instance = Mock()
-        mock_client.return_value = mock_instance
-        yield mock_instance
-
-
-@pytest.fixture
 def mock_telegram_bot():
     """Fixture to provide a mocked Telegram bot."""
     with patch("telegram_bot.bot.Bot") as mock_bot:
