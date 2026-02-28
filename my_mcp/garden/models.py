@@ -7,7 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Dict, List, Optional
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, computed_field, field_validator, ConfigDict
 from app.core.timezone_utils import now_local
 
 
@@ -40,14 +40,16 @@ class Plant(BaseModel):
     harvests: List[Harvest] = Field(
         default_factory=list, description="List of harvests"
     )
-    total_yield: Decimal = Field(
-        default=Decimal("0"), description="Total yield across all harvests"
-    )
+
+    @computed_field
+    @property
+    def total_yield(self) -> Decimal:
+        """Total yield computed from all harvests."""
+        return sum((h.yield_amount for h in self.harvests), Decimal("0"))
 
     def add_harvest(self, harvest: Harvest) -> None:
-        """Add a new harvest and update total yield."""
+        """Add a new harvest."""
         self.harvests.append(harvest)
-        self.total_yield += harvest.yield_amount
 
     model_config = ConfigDict(
         json_encoders={datetime: lambda v: v.isoformat(), Decimal: str}
@@ -78,7 +80,7 @@ class GardenDB(BaseModel):
         """Save garden database to JSON file."""
         file_path.parent.mkdir(parents=True, exist_ok=True)
         with open(file_path, "w") as f:
-            json.dump(self.dict(), f, indent=2, default=self._json_encoder)
+            json.dump(self.model_dump(), f, indent=2, default=self._json_encoder)
 
     def initialize_default_plants(self) -> None:
         """Initialize the database with default plants."""

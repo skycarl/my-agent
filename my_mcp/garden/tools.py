@@ -5,7 +5,7 @@ Garden management tools for FastMCP server.
 from decimal import Decimal
 from pathlib import Path
 from typing import Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from fastmcp import FastMCP
 
 
@@ -69,30 +69,6 @@ def normalize_plant_name(plant_name: str, available_plants: List[str]) -> str:
     raise ValueError(
         f"Plant '{plant_name}' not found in the garden. Available plants: {available_list}"
     )
-
-
-# Request/Response models for the tools
-class AddPlantRequest(BaseModel):
-    plant_name: str = Field(..., description="Name of the plant to add")
-
-
-class GetProduceCountsRequest(BaseModel):
-    plant_name: str = Field(
-        ..., description="Name of the plant to get produce counts for"
-    )
-
-
-class AddProduceRequest(BaseModel):
-    plant_name: str = Field(..., description="Name of the plant to add produce for")
-    amount: Decimal = Field(
-        ..., gt=0, description="Amount of produce to add (must be positive)"
-    )
-    notes: Optional[str] = Field(None, description="Optional notes about the harvest")
-
-
-class PlantResponse(BaseModel):
-    name: str
-    total_yield: Decimal
 
 
 class ProduceCountsResponse(BaseModel):
