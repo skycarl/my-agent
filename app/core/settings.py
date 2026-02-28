@@ -22,6 +22,8 @@ class Config(BaseSettings):
     # Valid OpenAI models that can be used
     valid_openai_models: list[str] = Field(
         default=[
+            "gpt-5.2",
+            "gpt-5.2-pro",
             "gpt-5",
             "gpt-5-mini",
             "o4-mini",
@@ -36,7 +38,7 @@ class Config(BaseSettings):
 
     # Default model to use when no specific model is provided
     default_model: str = Field(
-        default="gpt-5", description="Default OpenAI model to use for agents"
+        default="gpt-5.2", description="Default OpenAI model to use for agents"
     )
 
     # OpenAI API timeout and retry configuration

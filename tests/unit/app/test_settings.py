@@ -21,6 +21,8 @@ def test_config_defaults():
 
     # Test valid OpenAI models default
     expected_models = [
+        "gpt-5.2",
+        "gpt-5.2-pro",
         "gpt-5",
         "gpt-5-mini",
         "o4-mini",
@@ -33,7 +35,7 @@ def test_config_defaults():
     assert config.valid_openai_models == expected_models
 
     # Test default model
-    assert config.default_model == "gpt-5"
+    assert config.default_model == "gpt-5.2"
 
     # Test Telegram bot token default
     assert config.telegram_bot_token == ""
