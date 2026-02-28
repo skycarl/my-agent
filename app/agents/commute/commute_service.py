@@ -66,16 +66,17 @@ def get_recent_alerts(limit: int = 5) -> RecentAlertsResponse:
         return RecentAlertsResponse(alerts=[], total_stored=0)
 
     total = len(all_alerts)
-    recent = all_alerts[-limit:]
 
+    # Parse agent decisions and only return alerts the agent deemed relevant
     summaries = []
-    for alert in recent:
+    for alert in all_alerts:
         agent_processing = alert.get("agent_processing", {})
         agent_response = agent_processing.get("agent_response", "")
 
         notify_user = False
         message_content = ""
         if agent_response:
+            # Try <json> tags (legacy format)
             match = re.search(r"<json>(.*?)</json>", agent_response, re.DOTALL)
             if match:
                 try:
@@ -84,6 +85,19 @@ def get_recent_alerts(limit: int = 5) -> RecentAlertsResponse:
                     message_content = decision.get("message_content", "")
                 except json.JSONDecodeError:
                     pass
+            else:
+                # Structured output format: notify_user=True/False
+                nu_match = re.search(r"notify_user=(True|False)", agent_response)
+                if nu_match:
+                    notify_user = nu_match.group(1) == "True"
+                mc_match = re.search(
+                    r"message_content='(.*?)'(?:\s|$)", agent_response, re.DOTALL
+                )
+                if mc_match:
+                    message_content = mc_match.group(1)
+
+        if not notify_user:
+            continue
 
         summaries.append(
             AlertSummary(
@@ -95,4 +109,6 @@ def get_recent_alerts(limit: int = 5) -> RecentAlertsResponse:
             )
         )
 
-    return RecentAlertsResponse(alerts=summaries, total_stored=total)
+    return RecentAlertsResponse(
+        alerts=summaries[-limit:], total_stored=total
+    )
