@@ -58,7 +58,9 @@ class TestAgentConfiguration:
         """Test that Commute agent is properly configured."""
         agent = create_commute_agent()
         assert agent.name == "Commute Assistant"
-        assert len(agent.tools) == 2  # get_monorail_hours, get_current_date
+        assert (
+            len(agent.tools) == 3
+        )  # get_monorail_hours, get_current_date, get_recent_alerts
         assert agent.model is not None
         assert agent.instructions is not None
         assert "commute" in agent.instructions.lower()
@@ -82,7 +84,9 @@ class TestAgentConfiguration:
         # Test that commute agent tools exist
         commute = create_commute_agent()
         assert commute.tools is not None
-        assert len(commute.tools) == 2  # get_monorail_hours, get_current_date
+        assert (
+            len(commute.tools) == 3
+        )  # get_monorail_hours, get_current_date, get_recent_alerts
 
         # Test that handoffs exist
         orchestrator = create_orchestrator_agent()
@@ -109,7 +113,7 @@ class TestAgentFactoryFunctions:
 
         assert agent.name == "Commute Assistant"
         assert agent.model == custom_model
-        assert len(agent.tools) == 2
+        assert len(agent.tools) == 3
 
     def test_create_orchestrator_agent_with_custom_model(self):
         """Test that create_orchestrator_agent creates agent with specified model."""

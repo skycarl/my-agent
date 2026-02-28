@@ -184,26 +184,22 @@ class TestAgentResponseHandler:
         with patch.object(
             AgentResponseHandler, "send_telegram_notification"
         ) as mock_send:
-            with patch(
-                "app.core.agent_response_handler.get_conversation_manager"
-            ) as mock_cm:
-                mock_send.return_value = (True, "msg_123")
-                mock_cm.return_value.add_message.return_value = True
+            mock_send.return_value = (True, "msg_123")
 
-                (
-                    notification_sent,
-                    processed_message,
-                    metadata,
-                ) = await AgentResponseHandler.process_agent_response(
-                    response, context="alert_processing", alert_id="alert_456"
-                )
+            (
+                notification_sent,
+                processed_message,
+                metadata,
+            ) = await AgentResponseHandler.process_agent_response(
+                response, context="alert_processing", alert_id="alert_456"
+            )
 
-                assert notification_sent is True
-                assert processed_message == "Important alert message"
-                assert metadata["has_json"] is True
-                assert metadata["json_valid"] is True
-                assert metadata["notification_sent"] is True
-                assert "notification_sent" in metadata["actions_taken"]
+            assert notification_sent is True
+            assert processed_message == "Important alert message"
+            assert metadata["has_json"] is True
+            assert metadata["json_valid"] is True
+            assert metadata["notification_sent"] is True
+            assert "notification_sent" in metadata["actions_taken"]
 
     @pytest.mark.asyncio
     async def test_process_agent_response_no_notification_needed(self):

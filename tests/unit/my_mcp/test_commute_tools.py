@@ -19,8 +19,8 @@ def test_register_commute_tools(mock_server):
     # Register tools
     register_commute_tools(mock_server)
 
-    # Verify that the tool decorator was called once (only monorail hours tool)
-    assert mock_server.tool.call_count == 1
+    # Verify that the tool decorator was called twice (monorail hours + recent alerts)
+    assert mock_server.tool.call_count == 2
 
 
 @patch("my_mcp.commute.tools.fetch_hours_rows")
@@ -39,8 +39,8 @@ def test_get_monorail_hours_success(mock_fetch_hours):
     # Register tools
     register_commute_tools(server)
 
-    # Get the registered tool function
-    tool_function = server.tool.call_args[0][0]
+    # Get the registered monorail hours tool function (first registered)
+    tool_function = server.tool.call_args_list[0][0][0]
 
     # Call the tool
     result = tool_function()
@@ -74,8 +74,8 @@ def test_get_monorail_hours_error(mock_fetch_hours):
     # Register tools
     register_commute_tools(server)
 
-    # Get the registered tool function
-    tool_function = server.tool.call_args[0][0]
+    # Get the registered monorail hours tool function (first registered)
+    tool_function = server.tool.call_args_list[0][0][0]
 
     # Call the tool and expect an exception
     with pytest.raises(

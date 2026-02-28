@@ -42,18 +42,13 @@ class TestAsyncEndpoints:
                 yield mock_config
 
     @pytest.fixture
-    def mock_conversation_manager(self):
-        """Mock conversation manager."""
-        with patch("app.core.conversation_manager.get_conversation_manager") as mock_cm:
-            mock_manager = MagicMock()
-            mock_manager.add_message.return_value = True
-            mock_manager.get_conversation_history.return_value = [
-                {"role": "user", "content": "Hello"},
-                {"role": "assistant", "content": "Hi there!"},
-            ]
-            mock_manager.clear_conversation_history.return_value = True
-            mock_cm.return_value = mock_manager
-            yield mock_manager
+    def mock_session(self):
+        """Mock SDK session."""
+        with patch("app.core.main_router.get_session") as mock_get_session:
+            mock_sess = MagicMock()
+            mock_sess.clear_session = AsyncMock()
+            mock_get_session.return_value = mock_sess
+            yield mock_sess
 
     @pytest.fixture
     def mock_agent_runner(self):
@@ -76,7 +71,7 @@ class TestAsyncEndpoints:
         client,
         auth_headers,
         mock_config,
-        mock_conversation_manager,
+        mock_session,
         mock_agent_runner,
         mock_telegram_client,
     ):
@@ -104,12 +99,10 @@ class TestAsyncEndpoints:
                 assert data["success"] is True
                 assert data["response_sent"] is True
 
-                # Verify conversation manager was called
-                mock_conversation_manager.add_message.assert_called()
-                mock_conversation_manager.get_conversation_history.assert_called()
-
-                # Verify agent was run with conversation history
+                # Verify agent was run with session
                 mock_agent_runner.run.assert_called_once()
+                call_kwargs = mock_agent_runner.run.call_args
+                assert call_kwargs.kwargs.get("session") is mock_session
 
                 # Verify Telegram message was sent
                 mock_telegram_client.send_message.assert_called_once()
@@ -119,7 +112,7 @@ class TestAsyncEndpoints:
         client,
         auth_headers,
         mock_config,
-        mock_conversation_manager,
+        mock_session,
         mock_agent_runner,
     ):
         """Test when agent determines no response is needed."""
@@ -147,7 +140,7 @@ class TestAsyncEndpoints:
         client,
         auth_headers,
         mock_config,
-        mock_conversation_manager,
+        mock_session,
         mock_agent_runner,
         mock_telegram_client,
     ):
@@ -174,20 +167,17 @@ class TestAsyncEndpoints:
                 data = response.json()
                 assert data["success"] is True
 
-                # Should use the last message content (user message) and then add assistant response
-                mock_conversation_manager.add_message.assert_any_call(
-                    role="user", content="How are you?", message_type="chat"
-                )
-                mock_conversation_manager.add_message.assert_any_call(
-                    role="assistant", content="Response message", message_type="chat"
-                )
+                # Runner should be called with the last user message and session
+                call_kwargs = mock_agent_runner.run.call_args
+                assert call_kwargs.kwargs.get("input") == "How are you?"
+                assert call_kwargs.kwargs.get("session") is mock_session
 
     def test_agent_response_endpoint_error_handling(
         self,
         client,
         auth_headers,
         mock_config,
-        mock_conversation_manager,
+        mock_session,
         mock_telegram_client,
     ):
         """Test error handling in agent response endpoint."""
@@ -254,7 +244,7 @@ class TestAsyncEndpoints:
                         assert data["agent_processing"]["success"] is True
 
     def test_clear_conversation_endpoint_success(
-        self, client, auth_headers, mock_conversation_manager
+        self, client, auth_headers, mock_session
     ):
         """Test successful conversation clearing."""
         with patch("app.core.auth.config") as auth_config:
@@ -266,15 +256,15 @@ class TestAsyncEndpoints:
         assert data["success"] is True
         assert "cleared successfully" in data["message"]
 
-        mock_conversation_manager.clear_conversation_history.assert_called_once()
+        mock_session.clear_session.assert_awaited_once()
 
     def test_clear_conversation_endpoint_failure(self, client, auth_headers):
         """Test conversation clearing failure."""
-        with patch("app.core.conversation_manager.get_conversation_manager") as mock_cm:
+        with patch("app.core.main_router.get_session") as mock_get_session:
             with patch("app.core.auth.config") as auth_config:
-                mock_manager = MagicMock()
-                mock_manager.clear_conversation_history.return_value = False
-                mock_cm.return_value = mock_manager
+                mock_sess = MagicMock()
+                mock_sess.clear_session = AsyncMock(side_effect=Exception("DB error"))
+                mock_get_session.return_value = mock_sess
                 auth_config.x_token = "12345678910"
 
                 response = client.post("/clear_conversation", headers=auth_headers)
@@ -310,7 +300,7 @@ class TestAsyncEndpoints:
             assert response.status_code in [400, 401, 403, 422]
 
     def test_invalid_model_request(
-        self, client, auth_headers, mock_config, mock_conversation_manager
+        self, client, auth_headers, mock_config, mock_session
     ):
         """Test request with invalid model."""
         with patch("app.core.auth.config") as auth_config:
@@ -346,91 +336,63 @@ class TestAsyncArchitectureIntegration:
     @pytest.mark.asyncio
     async def test_end_to_end_user_query_flow(self):
         """Test complete flow for user query processing."""
-        with patch("app.core.conversation_manager.config") as mock_config:
-            with patch("app.core.agent_response_handler.config") as mock_config2:
-                with patch("app.core.telegram_client.telegram_client") as mock_client:
-                    mock_config.authorized_user_id = 12345
-                    mock_config.storage_path = "/tmp/test"
-                    mock_config.max_conversation_history = 10
-                    mock_config2.authorized_user_id = 12345
+        with patch("app.core.agent_response_handler.config") as mock_config2:
+            with patch("app.core.telegram_client.telegram_client") as mock_client:
+                mock_config2.authorized_user_id = 12345
 
-                    mock_client.send_message = AsyncMock(return_value=(True, "msg_123"))
+                mock_client.send_message = AsyncMock(return_value=(True, "msg_123"))
 
-                    # Simulate agent response with notification JSON
-                    agent_response = """
-                    <json>
-                    {
-                        "notify_user": true,
-                        "message_content": "Hello! How can I help you today?",
-                        "rationale": "User greeted the bot"
-                    }
-                    </json>
-                    """
+                # Simulate agent response with notification JSON
+                agent_response = """
+                <json>
+                {
+                    "notify_user": true,
+                    "message_content": "Hello! How can I help you today?",
+                    "rationale": "User greeted the bot"
+                }
+                </json>
+                """
 
-                    from app.core.agent_response_handler import AgentResponseHandler
+                from app.core.agent_response_handler import AgentResponseHandler
 
-                    (
-                        should_respond,
-                        message,
-                    ) = await AgentResponseHandler.process_user_query_response(
-                        agent_response
-                    )
+                (
+                    should_respond,
+                    message,
+                ) = await AgentResponseHandler.process_user_query_response(
+                    agent_response
+                )
 
-                    assert should_respond is True
-                    assert message == "Hello! How can I help you today?"
-                    # Note: send_message is not called here because user queries defer to endpoint
-                    # The endpoint handles the actual Telegram sending
+                assert should_respond is True
+                assert message == "Hello! How can I help you today?"
+                # Note: send_message is not called here because user queries defer to endpoint
+                # The endpoint handles the actual Telegram sending
 
     @pytest.mark.asyncio
     async def test_end_to_end_alert_processing_flow(self):
         """Test complete flow for alert processing."""
-        with patch("app.core.conversation_manager.config") as mock_config:
-            with patch("app.core.agent_response_handler.config") as mock_config2:
-                with patch("app.core.telegram_client.telegram_client") as mock_client:
-                    with patch(
-                        "app.core.conversation_manager.get_conversation_manager"
-                    ) as mock_cm:
-                        mock_config.authorized_user_id = 12345
-                        mock_config2.authorized_user_id = 12345
+        with patch("app.core.agent_response_handler.config") as mock_config2:
+            with patch("app.core.telegram_client.telegram_client") as mock_client:
+                mock_config2.authorized_user_id = 12345
 
-                        mock_client.send_message = AsyncMock(
-                            return_value=(True, "msg_123")
-                        )
-                        mock_manager = MagicMock()
-                        mock_manager.add_message.return_value = True
-                        mock_cm.return_value = mock_manager
+                mock_client.send_message = AsyncMock(return_value=(True, "msg_123"))
 
-                        # Simulate agent response for relevant alert
-                        agent_response = """
-                        <json>
-                        {
-                            "notify_user": true,
-                            "message_content": "Service disruption on Line 2. Expect delays.",
-                            "rationale": "This affects user's commute"
-                        }
-                        </json>
-                        """
+                # Simulate agent response for relevant alert
+                agent_response = """
+                <json>
+                {
+                    "notify_user": true,
+                    "message_content": "Service disruption on Line 2. Expect delays.",
+                    "rationale": "This affects user's commute"
+                }
+                </json>
+                """
 
-                        from app.core.agent_response_handler import AgentResponseHandler
+                from app.core.agent_response_handler import AgentResponseHandler
 
-                        # Mock the conversation manager for the AgentResponseHandler
-                        with patch(
-                            "app.core.agent_response_handler.get_conversation_manager"
-                        ) as mock_cm_handler:
-                            mock_cm_handler.return_value = mock_manager
+                result = await AgentResponseHandler.process_alert_response(
+                    agent_response, "alert_123"
+                )
 
-                            result = await AgentResponseHandler.process_alert_response(
-                                agent_response, "alert_123"
-                            )
-
-                        assert result["success"] is True
-                        assert result["notification_sent"] is True
-                        assert "Service disruption" in result["processed_message"]
-
-                        # Should add to conversation history
-                        mock_manager.add_message.assert_called_once_with(
-                            role="assistant",
-                            content="Service disruption on Line 2. Expect delays.",
-                            message_type="alert",
-                            alert_id="alert_123",
-                        )
+                assert result["success"] is True
+                assert result["notification_sent"] is True
+                assert "Service disruption" in result["processed_message"]

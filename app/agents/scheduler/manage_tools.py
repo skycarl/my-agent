@@ -24,7 +24,9 @@ async def list_scheduled_tasks(
     - name_filter: case-insensitive substring match on task name
     """
     try:
-        tasks = list_tasks_from_config(only_enabled=only_enabled, name_filter=name_filter)
+        tasks = list_tasks_from_config(
+            only_enabled=only_enabled, name_filter=name_filter
+        )
 
         if not tasks:
             return "No scheduled tasks found."
@@ -42,7 +44,9 @@ async def list_scheduled_tasks(
                 or schedule.get("run_at")
                 or ""
             )
-            lines.append(f"- {name} [{tid}] {'ENABLED' if enabled else 'DISABLED'} ({s_type} {extra})")
+            lines.append(
+                f"- {name} [{tid}] {'ENABLED' if enabled else 'DISABLED'} ({s_type} {extra})"
+            )
         return "\n".join(lines)
     except Exception as e:
         logger.error(f"Failed to list scheduled tasks via tool: {e}")
@@ -59,7 +63,9 @@ async def delete_scheduled_task(name: str) -> str:
     """
     try:
         all_tasks = list_tasks_from_config()
-        exact_matches = [t for t in all_tasks if str(t.get("name", "")).lower() == name.lower()]
+        exact_matches = [
+            t for t in all_tasks if str(t.get("name", "")).lower() == name.lower()
+        ]
         candidates = exact_matches or [
             t for t in all_tasks if name.lower() in str(t.get("name", "")).lower()
         ]
@@ -82,5 +88,3 @@ async def delete_scheduled_task(name: str) -> str:
     except Exception as e:
         logger.error(f"Failed to delete scheduled task via tool: {e}")
         return f"Error: {str(e)}"
-
-

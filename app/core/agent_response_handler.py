@@ -10,7 +10,6 @@ import json
 import re
 from typing import Dict, Optional, Tuple
 from loguru import logger
-from app.core.conversation_manager import get_conversation_manager
 from app.core.settings import config
 
 
@@ -215,16 +214,6 @@ class AgentResponseHandler:
             if notification_sent:
                 metadata["actions_taken"].append("notification_sent")
                 metadata["telegram_message_id"] = send_result
-
-                # Add message to conversation history for alert processing
-                conversation_manager = get_conversation_manager()
-                conversation_manager.add_message(
-                    role="assistant",
-                    content=message_content,
-                    message_type="alert",
-                    alert_id=alert_id,
-                )
-                metadata["actions_taken"].append("added_to_conversation_history")
 
                 return True, message_content, metadata
             else:

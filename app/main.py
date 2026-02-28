@@ -5,6 +5,7 @@ from loguru import logger
 from app.core.main_router import router as main_router
 from app.core.logger import init_logging
 from app.core.scheduler import scheduler_service
+from app.core.session_manager import reset_session
 
 
 @asynccontextmanager
@@ -31,6 +32,13 @@ async def lifespan(app: FastAPI):
         logger.info("Scheduler service shutdown completed")
     except Exception as e:
         logger.error(f"Error stopping scheduler service: {e}")
+
+    # Close the SQLite session
+    try:
+        reset_session()
+        logger.info("Session cleanup completed")
+    except Exception as e:
+        logger.error(f"Error closing session: {e}")
 
 
 root_router = APIRouter()

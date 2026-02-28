@@ -49,6 +49,25 @@ async def get_current_date() -> str:
         return f"Error getting current date: {str(e)}"
 
 
+@function_tool
+async def get_recent_alerts(limit: int = 5) -> str:
+    """Get recent commute alerts that were processed by the system."""
+    try:
+        result = await mcp_client.call_tool("get_recent_alerts", {"limit": limit})
+        if isinstance(result, dict) and "error" in result:
+            return f"Error getting recent alerts: {result['error']}"
+        elif isinstance(result, dict) and "content" in result:
+            content = result["content"]
+            if isinstance(content, str):
+                return content
+            return str(content)
+        else:
+            return str(result)
+    except Exception as e:
+        logger.error(f"Error calling get_recent_alerts MCP tool: {e}")
+        return f"Error getting recent alerts: {str(e)}"
+
+
 def create_commute_agent(model: str = None) -> Agent:
     """
     Create a Commute Assistant agent with MCP tools.
@@ -72,6 +91,7 @@ def create_commute_agent(model: str = None) -> Agent:
     You have access to tools that provide:
     - get_monorail_hours: Get current Seattle Monorail operating hours for each day
     - get_current_date: Get current date and time information for context
+    - get_recent_alerts: Look up recent commute alerts that were previously processed by the system
 
      You may be invoked through two paths:
      1) The user asking you a question about commuting or transportation by sending you a message. These will be in natural language.
@@ -135,7 +155,7 @@ def create_commute_agent(model: str = None) -> Agent:
     - Include relevant details like affected routes, estimated delays, and alternative options
     - Only use information available in the alert body or from your tools; do not make up information.
     """,
-        tools=[get_monorail_hours, get_current_date],
+        tools=[get_monorail_hours, get_current_date, get_recent_alerts],
         model=agent_model,
     )
 

@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from app.agents.orchestrator_agent import create_orchestrator_agent
 from app.core import agent_response_handler
 from app.core.auth import verify_token
-from app.core import conversation_manager
+from app.core.session_manager import get_session
 from app.core.scheduler import scheduler_service
 from app.core.settings import config
 from app.core.task_store import (
@@ -172,7 +172,9 @@ class ListTasksResponse(BaseModel):
 async def list_tasks(only_enabled: bool = False, name_filter: Optional[str] = None):
     """List scheduled tasks from configuration storage."""
     try:
-        tasks = list_tasks_from_config(only_enabled=only_enabled, name_filter=name_filter)
+        tasks = list_tasks_from_config(
+            only_enabled=only_enabled, name_filter=name_filter
+        )
 
         # Minimize sensitive data: omit headers if present
         sanitized: list[dict] = []
@@ -186,14 +188,18 @@ async def list_tasks(only_enabled: bool = False, name_filter: Optional[str] = No
             sanitized.append(t_copy)
 
         return JSONResponse(
-            content=jsonable_encoder(ListTasksResponse(success=True, tasks=sanitized, message="OK"))
+            content=jsonable_encoder(
+                ListTasksResponse(success=True, tasks=sanitized, message="OK")
+            )
         )
     except Exception as e:
         logger.error(f"Error listing tasks: {e}")
         return JSONResponse(
             status_code=500,
             content=jsonable_encoder(
-                ListTasksResponse(success=False, tasks=[], message=f"Failed to list tasks: {e}")
+                ListTasksResponse(
+                    success=False, tasks=[], message=f"Failed to list tasks: {e}"
+                )
             ),
         )
 
@@ -217,7 +223,9 @@ async def delete_task(task_id: str):
             return JSONResponse(
                 status_code=404,
                 content=jsonable_encoder(
-                    DeleteTaskResponse(success=False, task_id=task_id, message="Task not found")
+                    DeleteTaskResponse(
+                        success=False, task_id=task_id, message="Task not found"
+                    )
                 ),
             )
 
@@ -225,7 +233,9 @@ async def delete_task(task_id: str):
         return JSONResponse(
             content=jsonable_encoder(
                 DeleteTaskResponse(
-                    success=True, task_id=task_id, message="Task deleted and scheduler reloaded"
+                    success=True,
+                    task_id=task_id,
+                    message="Task deleted and scheduler reloaded",
                 )
             )
         )
@@ -234,7 +244,11 @@ async def delete_task(task_id: str):
         return JSONResponse(
             status_code=500,
             content=jsonable_encoder(
-                DeleteTaskResponse(success=False, task_id=task_id, message=f"Failed to delete task: {e}")
+                DeleteTaskResponse(
+                    success=False,
+                    task_id=task_id,
+                    message=f"Failed to delete task: {e}",
+                )
             ),
         )
 
@@ -255,8 +269,6 @@ async def create_agent_response(request: AgentRequest):
         Simple success confirmation
     """
     try:
-        conversation_manager_instance = conversation_manager.get_conversation_manager()
-
         # Extract user message from request
         if request.input is not None:
             user_message = request.input
@@ -269,16 +281,6 @@ async def create_agent_response(request: AgentRequest):
             )
         else:
             raise HTTPException(status_code=400, detail="No input or messages provided")
-
-        # Add user message to persistent conversation history
-        conversation_manager_instance.add_message(
-            role="user", content=user_message, message_type="chat"
-        )
-
-        # Get conversation history from disk for agent processing
-        conversation_history = conversation_manager_instance.get_conversation_history(
-            max_messages=config.max_conversation_history
-        )
 
         # Determine which model to use (default to config default for agents)
         model = request.model or config.default_model
@@ -303,9 +305,14 @@ async def create_agent_response(request: AgentRequest):
                 detail="OpenAI API key is not configured. Please set the OPENAI_API_KEY environment variable.",
             )
 
-        # Run the agent workflow using the Orchestrator
+        # Run the agent workflow using the Orchestrator with SDK session
+        # The session automatically persists full conversation state
+        # (including tool calls, results, and handoff context)
         logger.debug("Running agent workflow with Orchestrator")
-        result = await Runner.run(orchestrator_agent, input=conversation_history)
+        session = get_session()
+        result = await Runner.run(
+            orchestrator_agent, input=user_message, session=session
+        )
 
         logger.debug("Agent workflow completed successfully")
         logger.debug(f"Response: {result.final_output}")
@@ -322,11 +329,6 @@ async def create_agent_response(request: AgentRequest):
         telegram_message_id = None
 
         if should_respond and response_message.strip():
-            # Add agent response to conversation history
-            conversation_manager_instance.add_message(
-                role="assistant", content=response_message, message_type="chat"
-            )
-
             # Send response directly to user via Telegram
             try:
                 target_user_id = config.authorized_user_id
@@ -622,26 +624,16 @@ async def clear_conversation():
         Success confirmation
     """
     try:
-        conversation_manager_instance = conversation_manager.get_conversation_manager()
-        success = conversation_manager_instance.clear_conversation_history()
+        session = get_session()
+        await session.clear_session()
 
-        if success:
-            logger.info("Successfully cleared conversation history")
-            return JSONResponse(
-                content={
-                    "success": True,
-                    "message": "Conversation history cleared successfully",
-                }
-            )
-        else:
-            logger.warning("Failed to clear conversation history")
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "success": False,
-                    "message": "Failed to clear conversation history",
-                },
-            )
+        logger.info("Successfully cleared conversation history")
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": "Conversation history cleared successfully",
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error in /clear_conversation endpoint: {str(e)}")

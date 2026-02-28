@@ -8,7 +8,10 @@ to the application's /agent_response endpoint.
 from agents import Agent, function_tool
 from loguru import logger
 from app.core.settings import config
-from app.agents.scheduler.manage_tools import list_scheduled_tasks, delete_scheduled_task
+from app.agents.scheduler.manage_tools import (
+    list_scheduled_tasks,
+    delete_scheduled_task,
+)
 
 
 @function_tool
