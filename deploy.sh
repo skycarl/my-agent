@@ -7,7 +7,7 @@ exec > >(tee -i $log_file)
 exec 2>&1
 
 echo "Pulling from git"
-if ! git pull git@github.com:skycarl/my-agent.git; then
+if ! git pull origin main; then
   echo "Failed to pull from git"
   exit 1
 fi

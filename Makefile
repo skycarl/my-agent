@@ -1,4 +1,4 @@
-.PHONY: test lint run run-bot pre-commit install help docker-up docker-down
+.PHONY: test lint run run-bot pre-commit install help docker-up docker-down setup-cron
 
 # Default target
 help:
@@ -58,3 +58,7 @@ docker-down:
 
 logs:
 	docker compose -f docker-compose.yml logs -f
+
+setup-cron:
+	@echo "Run this on your Pi to add the cron job:"
+	@echo '  (crontab -l 2>/dev/null; echo "*/5 * * * * $(CURDIR)/auto-deploy.sh >> $(CURDIR)/auto-deploy.log 2>&1") | crontab -'
