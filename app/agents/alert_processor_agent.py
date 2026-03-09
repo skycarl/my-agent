@@ -38,9 +38,13 @@ async def get_current_date() -> str:
 
 
 @function_tool
-async def get_recent_alerts(limit: int = 5) -> str:
-    """Get recent commute alerts that were processed by the system."""
-    result = svc_get_recent_alerts(limit)
+async def get_recent_alerts(days: int = 2) -> str:
+    """Get recent commute alerts that were processed by the system.
+
+    Args:
+        days: Number of days to look back. Defaults to 2.
+    """
+    result = svc_get_recent_alerts(days=days)
     return str(result.model_dump())
 
 

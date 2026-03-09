@@ -201,7 +201,7 @@ class TestCommuteToolDirectCalls:
         ):
             from app.agents.commute_agent import get_recent_alerts
 
-            result = await get_recent_alerts.on_invoke_tool(None, '{"limit": 5}')
+            result = await get_recent_alerts.on_invoke_tool(None, '{"days": 2}')
             assert "alerts" in result
 
     @pytest.mark.asyncio
