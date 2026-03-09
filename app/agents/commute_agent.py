@@ -46,9 +46,14 @@ async def get_current_date() -> str:
 
 
 @function_tool
-async def get_recent_alerts(limit: int = 5) -> str:
-    """Get recent commute alerts that were processed by the system."""
-    result = svc_get_recent_alerts(limit)
+async def get_recent_alerts(days: int = 2) -> str:
+    """Get recent commute alerts (both relevant and irrelevant) within a time window.
+
+    Args:
+        days: Number of days to look back. Defaults to 2. Use a larger value
+              (e.g. 7) if the user asks about alerts from earlier in the week.
+    """
+    result = svc_get_recent_alerts(days=days)
     return str(result.model_dump())
 
 
@@ -114,7 +119,7 @@ You are the Commute Assistant - a specialized agent for handling transportation 
 
 You help the user with:
 - Seattle Monorail operating hours and schedules
-- Looking up recent transit alerts
+- Looking up recent transit alerts (includes all alerts — both relevant and irrelevant — so you can give comprehensive answers)
 - Managing commute preferences (regular schedule, route preferences)
 - Managing ad hoc commute overrides (e.g., "I'm going into the city tomorrow", "working from home Thursday")
 
@@ -128,6 +133,11 @@ You help the user with:
 - Use `add_commute_override_tool` to add a one-off schedule change (e.g., "commute_day" for going in on a remote day, "remote_day" for staying home on an office day).
 - Use `remove_commute_override_tool` to delete an override by ID.
 - Overrides automatically expire after the date they apply to.
+
+## Transit Alerts
+- `get_recent_alerts` returns ALL alerts (relevant and irrelevant) within a time window. Each alert has a `notify_user` field (whether the user was notified) and a `rationale` explaining why.
+- Default lookback is 2 days. If the user asks about alerts from earlier in the week or a broader time range, increase the `days` parameter accordingly.
+- When summarizing alerts, distinguish between alerts that triggered notifications and those that did not, so the user gets the full picture.
 
 Guidelines:
 - Always consider what day it is today (use get_current_date when relevant).

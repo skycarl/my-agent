@@ -30,6 +30,10 @@ class AlertSummary(BaseModel):
         ...,
         description="The notification message sent to the user (empty if not notified)",
     )
+    rationale: str = Field(
+        "",
+        description="The agent's rationale for why the alert was or was not relevant",
+    )
 
 
 class RecentAlertsResponse(BaseModel):
@@ -83,8 +87,16 @@ def _parse_legacy_decision(agent_response: str) -> tuple[bool, str]:
     return notify_user, message_content
 
 
-def get_recent_alerts(limit: int = 20) -> RecentAlertsResponse:
-    """Get recent commute alerts that were processed by the system."""
+def get_recent_alerts(limit: int = 50, days: int = 2) -> RecentAlertsResponse:
+    """Get recent commute alerts that were processed by the system.
+
+    Returns all alerts (both relevant and irrelevant) within the given time
+    window so the agent has full context when answering user questions.
+
+    Args:
+        limit: Maximum number of alerts to return (safety cap).
+        days: Only return alerts from the last N days.
+    """
     if not ALERTS_FILE.exists():
         return RecentAlertsResponse(alerts=[], total_stored=0)
 
@@ -95,10 +107,15 @@ def get_recent_alerts(limit: int = 20) -> RecentAlertsResponse:
         return RecentAlertsResponse(alerts=[], total_stored=0)
 
     total = len(all_alerts)
+    cutoff = (now_local() - timedelta(days=days)).isoformat()
 
-    # Parse agent decisions and only return alerts the agent deemed relevant
     summaries = []
     for alert in all_alerts:
+        # Date filter
+        received = alert.get("received_date", "")
+        if received and received < cutoff:
+            continue
+
         # Prefer structured top-level fields (written since this change)
         if "notify_user" in alert:
             notify_user = alert["notify_user"]
@@ -108,8 +125,15 @@ def get_recent_alerts(limit: int = 20) -> RecentAlertsResponse:
             agent_response = alert.get("agent_processing", {}).get("agent_response", "")
             notify_user, message_content = _parse_legacy_decision(agent_response or "")
 
-        if not notify_user:
-            continue
+        # Extract rationale from agent processing metadata
+        rationale = ""
+        agent_response_str = alert.get("agent_processing", {}).get("agent_response", "")
+        if agent_response_str:
+            rat_match = re.search(
+                r"rationale='(.*?)'(?:\s|$)", agent_response_str, re.DOTALL
+            )
+            if rat_match:
+                rationale = rat_match.group(1)
 
         summaries.append(
             AlertSummary(
@@ -118,6 +142,7 @@ def get_recent_alerts(limit: int = 20) -> RecentAlertsResponse:
                 alert_type=alert.get("alert_type", ""),
                 notify_user=notify_user,
                 message_content=message_content,
+                rationale=rationale,
             )
         )
 
