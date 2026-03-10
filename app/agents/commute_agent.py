@@ -46,14 +46,15 @@ async def get_current_date() -> str:
 
 
 @function_tool
-async def get_recent_alerts(days: int = 2) -> str:
+async def get_recent_alerts(days: int = 2, status: str = "") -> str:
     """Get recent commute alerts (both relevant and irrelevant) within a time window.
 
     Args:
         days: Number of days to look back. Defaults to 2. Use a larger value
               (e.g. 7) if the user asks about alerts from earlier in the week.
+        status: Filter by status: "active" (ongoing), "resolved" (cleared), or "" for all.
     """
-    result = svc_get_recent_alerts(days=days)
+    result = svc_get_recent_alerts(days=days, status=status or None)
     return str(result.model_dump())
 
 
@@ -136,8 +137,10 @@ You help the user with:
 
 ## Transit Alerts
 - `get_recent_alerts` returns ALL alerts (relevant and irrelevant) within a time window. Each alert has a `notify_user` field (whether the user was notified) and a `rationale` explaining why.
+- Each alert has a `status` field: `"active"` means the disruption is ongoing, `"resolved"` means a later cancellation/cleared notice resolved it.
+- Use `status="active"` when the user asks what's currently affecting their commute. Use no filter (or `status=""`) when the user asks about alert history.
 - Default lookback is 2 days. If the user asks about alerts from earlier in the week or a broader time range, increase the `days` parameter accordingly.
-- When summarizing alerts, distinguish between alerts that triggered notifications and those that did not, so the user gets the full picture.
+- When summarizing alerts, distinguish between active and resolved alerts, and between alerts that triggered notifications and those that did not, so the user gets the full picture.
 
 Guidelines:
 - Always consider what day it is today (use get_current_date when relevant).
