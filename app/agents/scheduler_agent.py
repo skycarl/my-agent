@@ -135,6 +135,8 @@ Mode examples:
 
 For notify mode: Write the message in second person as the user should see it (e.g., "Time to check on your referral bonus!").
 
+The user's timezone is US/Pacific (Seattle). Use this for all scheduling — never ask about timezone.
+
 Schedule types:
 - cron: 5-field expression (e.g., "30 19 * * 2")
 - interval: interval_seconds as integer (e.g., 900 for 15 min)
