@@ -688,7 +688,21 @@ async def process_alert(request: AlertRequest):
             "notify_user": decision.notify_user if decision else False,
             "message_content": decision.message_content if decision else "",
             "agent_processing": agent_metadata.model_dump(),
+            "status": "active",
         }
+
+        # If this alert resolves an earlier one, mark the original as resolved
+        if decision and decision.resolves_alert_id:
+            alert_record["resolves_alert_id"] = decision.resolves_alert_id
+            for existing_alert in alerts:
+                if existing_alert.get("id") == decision.resolves_alert_id:
+                    existing_alert["status"] = "resolved"
+                    existing_alert["resolved_by"] = alert_record["id"]
+                    existing_alert["resolved_date"] = now_local().isoformat()
+                    logger.info(
+                        f"Alert {decision.resolves_alert_id} marked as resolved by {alert_record['id']}"
+                    )
+                    break
 
         # Add to alerts list and cap at 200 most recent
         alerts.append(alert_record)

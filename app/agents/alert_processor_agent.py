@@ -5,6 +5,8 @@ This agent uses structured output (output_type) to produce an AlertDecision,
 eliminating the need for fragile <json> tag parsing.
 """
 
+from typing import Optional
+
 from agents import Agent, function_tool
 from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
 from loguru import logger
@@ -21,6 +23,7 @@ class AlertDecision(BaseModel):
     rationale: str
     notify_user: bool
     message_content: str
+    resolves_alert_id: Optional[str] = None
 
 
 @function_tool
@@ -38,13 +41,14 @@ async def get_current_date() -> str:
 
 
 @function_tool
-async def get_recent_alerts(days: int = 2) -> str:
+async def get_recent_alerts(days: int = 2, status: str = "") -> str:
     """Get recent commute alerts that were processed by the system.
 
     Args:
         days: Number of days to look back. Defaults to 2.
+        status: Filter by status: "active", "resolved", or "" for all.
     """
-    result = svc_get_recent_alerts(days=days)
+    result = svc_get_recent_alerts(days=days, status=status or None)
     return str(result.model_dump())
 
 
@@ -103,6 +107,14 @@ Your job is to:
 - Elevator outages
 - Vending machine outages
 - Other non-commute related alerts
+
+## Cancellation / Cleared Alerts
+Some alerts are cancellations or "cleared" notices that indicate a previous disruption has ended.
+- Look for keywords like "cleared", "cancelled", "restored", "resumed", "resolved", "back to normal", "no longer in effect", "service restored", "all clear" in the subject or body.
+- If the alert appears to be a cancellation, call `get_recent_alerts(status="active")` to find the original active alert it resolves.
+- If you find a matching original alert, set `resolves_alert_id` to that alert's `id`.
+- For cancellation notifications: only set `notify_user=true` if the original alert had `notify_user=true` (the user was notified about the disruption, so they should know it's cleared). If the original was not notified, set `notify_user=false`.
+- If you cannot find a matching original alert, still process the cancellation normally (leave `resolves_alert_id` empty).
 
 **Guidelines:**
 - Use get_current_date to check if the alert is timely

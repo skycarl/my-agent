@@ -8,7 +8,7 @@ import json
 import re
 from datetime import timedelta
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,7 @@ ALERTS_FILE = Path("storage/commute_alerts.json")
 
 
 class AlertSummary(BaseModel):
+    id: str = Field("", description="Unique alert identifier")
     subject: str = Field(..., description="Alert subject line")
     received_date: str = Field(..., description="When the alert was received")
     alert_type: str = Field(..., description="Type of alert (e.g. email)")
@@ -33,6 +34,14 @@ class AlertSummary(BaseModel):
     rationale: str = Field(
         "",
         description="The agent's rationale for why the alert was or was not relevant",
+    )
+    status: str = Field(
+        "active",
+        description="Alert status: 'active' (ongoing) or 'resolved' (cleared by a cancellation)",
+    )
+    resolved_by: Optional[str] = Field(
+        None,
+        description="ID of the cancellation alert that resolved this one",
     )
 
 
@@ -87,7 +96,9 @@ def _parse_legacy_decision(agent_response: str) -> tuple[bool, str]:
     return notify_user, message_content
 
 
-def get_recent_alerts(limit: int = 50, days: int = 2) -> RecentAlertsResponse:
+def get_recent_alerts(
+    limit: int = 50, days: int = 2, status: Optional[str] = None
+) -> RecentAlertsResponse:
     """Get recent commute alerts that were processed by the system.
 
     Returns all alerts (both relevant and irrelevant) within the given time
@@ -96,6 +107,7 @@ def get_recent_alerts(limit: int = 50, days: int = 2) -> RecentAlertsResponse:
     Args:
         limit: Maximum number of alerts to return (safety cap).
         days: Only return alerts from the last N days.
+        status: Filter by alert status: "active", "resolved", or None for all.
     """
     if not ALERTS_FILE.exists():
         return RecentAlertsResponse(alerts=[], total_stored=0)
@@ -114,6 +126,11 @@ def get_recent_alerts(limit: int = 50, days: int = 2) -> RecentAlertsResponse:
         # Date filter
         received = alert.get("received_date", "")
         if received and received < cutoff:
+            continue
+
+        # Status filter (missing status defaults to "active" for backward compat)
+        alert_status = alert.get("status", "active")
+        if status and alert_status != status:
             continue
 
         # Prefer structured top-level fields (written since this change)
@@ -137,12 +154,15 @@ def get_recent_alerts(limit: int = 50, days: int = 2) -> RecentAlertsResponse:
 
         summaries.append(
             AlertSummary(
+                id=alert.get("id", ""),
                 subject=alert.get("subject", ""),
                 received_date=alert.get("received_date", ""),
                 alert_type=alert.get("alert_type", ""),
                 notify_user=notify_user,
                 message_content=message_content,
                 rationale=rationale,
+                status=alert_status,
+                resolved_by=alert.get("resolved_by"),
             )
         )
 
