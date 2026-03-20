@@ -105,6 +105,14 @@ class Config(BaseSettings):
         default="storage", description="Path to storage directory for persistent data"
     )
 
+    # Version / Build Info (set at deploy time)
+    git_commit: str = Field(
+        default="", description="Git commit hash of the deployed build"
+    )
+    git_commit_message: str = Field(
+        default="", description="Git commit message of the deployed build"
+    )
+
     # Timezone Configuration
     timezone: str = Field(
         default="America/Los_Angeles",

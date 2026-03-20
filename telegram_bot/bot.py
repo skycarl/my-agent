@@ -3,6 +3,8 @@ Telegram bot implementation using python-telegram-bot library.
 """
 
 import base64
+import subprocess
+from importlib.metadata import version as pkg_version
 
 import httpx
 from loguru import logger
@@ -195,10 +197,56 @@ Available commands:
 /help - Show this help message
 /clear - Clear conversation history and start fresh
 /model - Select the OpenAI model to use
+/version - Show app version and deployed commit info
 
 Just send me any message and I'll respond using AI!
         """
         await update.message.reply_text(help_text)
+
+    def _get_git_info(self) -> tuple[str, str]:
+        """Get git commit hash and message from config or local git."""
+        commit = config.git_commit
+        message = config.git_commit_message
+
+        if not commit:
+            try:
+                commit = subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], text=True, timeout=5
+                ).strip()
+                message = subprocess.check_output(
+                    ["git", "log", "-1", "--pretty=%s"], text=True, timeout=5
+                ).strip()
+            except Exception:
+                commit = "unknown"
+                message = "unknown"
+
+        return commit, message
+
+    async def version_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /version command."""
+        if not update.message or not update.message.from_user:
+            logger.warning("Received /version command without user information")
+            return
+
+        user_id = update.message.from_user.id
+
+        if not self._is_authorized_user(user_id):
+            await self._log_unauthorized_access(update, "version command")
+            return
+
+        username = update.message.from_user.username
+        logger.info(f"Authorized user {user_id} ({username}) requested version info")
+
+        app_version = pkg_version("my-agent")
+        commit, message = self._get_git_info()
+        short_commit = commit[:7] if len(commit) > 7 else commit
+
+        version_text = (
+            f"Version: {app_version}\nCommit: {short_commit}\nMessage: {message}"
+        )
+        await update.message.reply_text(version_text)
 
     async def clear_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -578,6 +626,7 @@ Just send me any message and I'll respond using AI!
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("clear", self.clear_command))
         self.application.add_handler(CommandHandler("model", self.set_model_command))
+        self.application.add_handler(CommandHandler("version", self.version_command))
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )

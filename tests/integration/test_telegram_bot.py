@@ -359,3 +359,88 @@ class TestTelegramBot:
 
                 models = await bot._get_available_models()
                 assert models == []
+
+    @pytest.mark.asyncio
+    async def test_version_command_with_env_vars(self):
+        """Test /version command when git info is set via config."""
+        with patch("telegram_bot.bot.config") as mock_config:
+            mock_config.telegram_bot_token = "test_token"
+            mock_config.app_url = "http://localhost:8000"
+            mock_config.x_token = "test_x_token"
+            mock_config.max_conversation_history = 10
+            mock_config.authorized_user_id = 123
+            mock_config.git_commit = "abc1234567890"
+            mock_config.git_commit_message = "feat: add cool feature"
+
+            bot = TelegramBot()
+
+            mock_update = Mock()
+            mock_update.message.reply_text = AsyncMock()
+            mock_update.message.from_user.id = 123
+            mock_update.message.from_user.username = "testuser"
+            mock_context = Mock()
+
+            with patch("telegram_bot.bot.pkg_version", return_value="0.10.1"):
+                await bot.version_command(mock_update, mock_context)
+
+            mock_update.message.reply_text.assert_called_once()
+            call_args = mock_update.message.reply_text.call_args[0][0]
+            assert "0.10.1" in call_args
+            assert "abc1234" in call_args
+            assert "feat: add cool feature" in call_args
+
+    @pytest.mark.asyncio
+    async def test_version_command_falls_back_to_git(self):
+        """Test /version command falls back to git subprocess when env vars are empty."""
+        with patch("telegram_bot.bot.config") as mock_config:
+            mock_config.telegram_bot_token = "test_token"
+            mock_config.app_url = "http://localhost:8000"
+            mock_config.x_token = "test_x_token"
+            mock_config.max_conversation_history = 10
+            mock_config.authorized_user_id = 123
+            mock_config.git_commit = ""
+            mock_config.git_commit_message = ""
+
+            bot = TelegramBot()
+
+            mock_update = Mock()
+            mock_update.message.reply_text = AsyncMock()
+            mock_update.message.from_user.id = 123
+            mock_update.message.from_user.username = "testuser"
+            mock_context = Mock()
+
+            with (
+                patch("telegram_bot.bot.pkg_version", return_value="0.10.1"),
+                patch(
+                    "subprocess.check_output",
+                    side_effect=["deadbeef12345\n", "fix: a bug\n"],
+                ),
+            ):
+                await bot.version_command(mock_update, mock_context)
+
+            call_args = mock_update.message.reply_text.call_args[0][0]
+            assert "0.10.1" in call_args
+            assert "deadbee" in call_args
+            assert "fix: a bug" in call_args
+
+    @pytest.mark.asyncio
+    async def test_version_command_unauthorized(self):
+        """Test /version command rejects unauthorized users."""
+        with patch("telegram_bot.bot.config") as mock_config:
+            mock_config.telegram_bot_token = "test_token"
+            mock_config.app_url = "http://localhost:8000"
+            mock_config.x_token = "test_x_token"
+            mock_config.max_conversation_history = 10
+            mock_config.authorized_user_id = 123
+
+            bot = TelegramBot()
+
+            mock_update = Mock()
+            mock_update.message.reply_text = AsyncMock()
+            mock_update.message.from_user.id = 999  # Unauthorized
+            mock_update.message.from_user.username = "hacker"
+            mock_context = Mock()
+
+            await bot.version_command(mock_update, mock_context)
+
+            mock_update.message.reply_text.assert_not_called()
