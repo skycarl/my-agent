@@ -3,6 +3,7 @@ Tests for alert cancellation/resolution handling.
 """
 
 import json
+from datetime import timedelta, timezone
 from unittest.mock import patch
 
 from app.agents.alert_processor_agent import AlertDecision
@@ -180,6 +181,57 @@ class TestGetRecentAlertsStatusFilter:
             result = get_recent_alerts(days=7, status="active")
             assert len(result.alerts) == 1
             assert result.alerts[0].status == "active"
+
+    def test_utc_dates_not_excluded_by_timezone_mismatch(self, tmp_path):
+        """Alerts stored with UTC dates (+00:00) are correctly included in results.
+
+        Regression test: string comparison of ISO dates with different timezone
+        offsets (e.g. +00:00 vs -07:00) could wrongly exclude recent alerts.
+        """
+        # Create an alert with a UTC received_date (1 hour ago)
+        now = now_local()
+        utc_date = (now - timedelta(hours=1)).astimezone(timezone.utc)
+        alert = self._make_alert(
+            "utc_alert",
+            "Sounder delay",
+            received_date=utc_date.isoformat(),
+        )
+        alerts_file = self._write_alerts(tmp_path, [alert])
+
+        with patch.object(
+            __import__("app.agents.commute.commute_service", fromlist=["ALERTS_FILE"]),
+            "ALERTS_FILE",
+            alerts_file,
+        ):
+            result = get_recent_alerts(days=2, status=None)
+            assert len(result.alerts) == 1
+            assert result.alerts[0].id == "utc_alert"
+
+    def test_str_format_dates_not_excluded(self, tmp_path):
+        """Alerts stored with str(datetime) format (space separator) are included.
+
+        Regression test: str(datetime) uses space separator instead of T,
+        which caused string comparison to always evaluate as less than the
+        T-formatted cutoff.
+        """
+        now = now_local()
+        # str(datetime) uses space separator: "2026-03-18 22:00:00-07:00"
+        str_date = str(now - timedelta(hours=1))
+        alert = self._make_alert(
+            "str_alert",
+            "Bus delay",
+            received_date=str_date,
+        )
+        alerts_file = self._write_alerts(tmp_path, [alert])
+
+        with patch.object(
+            __import__("app.agents.commute.commute_service", fromlist=["ALERTS_FILE"]),
+            "ALERTS_FILE",
+            alerts_file,
+        ):
+            result = get_recent_alerts(days=2, status=None)
+            assert len(result.alerts) == 1
+            assert result.alerts[0].id == "str_alert"
 
     def test_summary_includes_id(self, tmp_path):
         """AlertSummary includes the alert id field."""
