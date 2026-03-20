@@ -140,6 +140,28 @@ class Config(BaseSettings):
         description="If a one-time task was missed while the service was down, run it on next start if within this many seconds.",
     )
 
+    # Obsidian Vault (S3) Configuration
+    obsidian_s3_bucket: str = Field(
+        default="", description="S3 bucket name for Obsidian vault"
+    )
+    obsidian_s3_prefix: str = Field(
+        default="",
+        description="S3 key prefix if vault is stored in a subfolder of the bucket",
+    )
+    obsidian_s3_region: str = Field(
+        default="us-west-2", description="AWS region for Obsidian S3 bucket"
+    )
+    obsidian_recipes_folder: str = Field(
+        default="Recipes",
+        description="Folder in the vault where saved recipes are stored",
+    )
+
+    # AWS Credentials (for S3 vault access)
+    aws_access_key_id: str = Field(default="", description="AWS access key ID for S3")
+    aws_secret_access_key: str = Field(
+        default="", description="AWS secret access key for S3"
+    )
+
     @property
     def tasks_config_path(self) -> str:
         """Get the tasks configuration file path based on storage path."""
