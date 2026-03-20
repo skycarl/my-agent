@@ -13,7 +13,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from .parse_hours import fetch_hours_rows
-from app.core.timezone_utils import now_local
+from app.core.timezone_utils import now_local, parse_datetime_in_app_tz
 
 
 ALERTS_FILE = Path("storage/commute_alerts.json")
@@ -119,14 +119,19 @@ def get_recent_alerts(
         return RecentAlertsResponse(alerts=[], total_stored=0)
 
     total = len(all_alerts)
-    cutoff = (now_local() - timedelta(days=days)).isoformat()
+    cutoff = now_local() - timedelta(days=days)
 
     summaries = []
     for alert in all_alerts:
-        # Date filter
+        # Date filter — use proper datetime comparison to handle mixed timezone offsets
         received = alert.get("received_date", "")
-        if received and received < cutoff:
-            continue
+        if received:
+            try:
+                received_dt = parse_datetime_in_app_tz(received)
+                if received_dt < cutoff:
+                    continue
+            except (ValueError, TypeError):
+                pass  # Include alerts with unparseable dates
 
         # Status filter (missing status defaults to "active" for backward compat)
         alert_status = alert.get("status", "active")
