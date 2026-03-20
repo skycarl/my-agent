@@ -51,7 +51,7 @@ install:
 	uv sync
 
 docker-up:
-	docker compose up -d --build
+	GIT_COMMIT=$$(git rev-parse HEAD) GIT_COMMIT_MESSAGE=$$(git log -1 --pretty=%s) docker compose up -d --build
 
 docker-down:
 	docker compose down

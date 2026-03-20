@@ -21,7 +21,7 @@ services:
 
   telegram-bot:
     container_name: telegram_bot
-    build: 
+    build:
       context: .
       dockerfile: .docker/Dockerfile
     command: bash -c "uv run python -m telegram_bot.main"
@@ -34,6 +34,8 @@ services:
     environment:
       - TERM=xterm-256color
       - FORCE_COLOR=1
+      - GIT_COMMIT=${GIT_COMMIT:-}
+      - GIT_COMMIT_MESSAGE=${GIT_COMMIT_MESSAGE:-}
 
   email-sink:
     container_name: email_sink
