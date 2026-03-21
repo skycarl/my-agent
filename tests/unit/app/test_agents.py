@@ -14,6 +14,7 @@ from app.agents.gardener_agent import create_gardener_agent
 from app.agents.commute_agent import create_commute_agent
 from app.agents.orchestrator_agent import create_orchestrator_agent
 from app.agents.scheduler_agent import create_scheduler_agent
+from app.agents.workout_agent import create_workout_agent
 
 
 class TestAgentConfiguration:
@@ -41,7 +42,7 @@ class TestAgentConfiguration:
         """Test that Orchestrator agent is properly configured."""
         agent = create_orchestrator_agent()
         assert agent.name == "Orchestrator"
-        assert len(agent.handoffs) == 3
+        assert len(agent.handoffs) == 4
         assert agent.model is not None
         assert agent.instructions is not None
         assert "orchestrator" in agent.instructions.lower()
@@ -61,7 +62,7 @@ class TestAgentConfiguration:
         # Test that handoffs exist
         orchestrator = create_orchestrator_agent()
         assert orchestrator.handoffs is not None
-        assert len(orchestrator.handoffs) == 3
+        assert len(orchestrator.handoffs) == 4
 
 
 class TestAgentFactoryFunctions:
@@ -92,7 +93,7 @@ class TestAgentFactoryFunctions:
 
         assert agent.name == "Orchestrator"
         assert agent.model == custom_model
-        assert len(agent.handoffs) == 3
+        assert len(agent.handoffs) == 4
 
         # Verify that handoff agents also use the same model
         for handoff_agent in agent.handoffs:
@@ -344,3 +345,26 @@ class TestAgentReasoningEffort:
         """Orchestrator agent should not have custom reasoning effort (uses SDK defaults)."""
         agent = create_orchestrator_agent()
         assert agent.model_settings.reasoning is None
+
+    def test_workout_agent_uses_sdk_defaults(self):
+        """Workout agent should not have custom reasoning effort (uses SDK defaults)."""
+        agent = create_workout_agent()
+        assert agent.model_settings.reasoning is None
+
+
+class TestWorkoutAgentConfiguration:
+    """Test workout agent configuration."""
+
+    def test_workout_agent_configuration(self):
+        """Test that Workout agent is properly configured."""
+        agent = create_workout_agent()
+        assert agent.name == "Workout"
+        assert len(agent.tools) == 4
+        assert agent.model is not None
+        assert "workout" in agent.instructions.lower()
+
+    def test_create_workout_agent_with_custom_model(self):
+        """Test that create_workout_agent creates agent with specified model."""
+        agent = create_workout_agent("gpt-5-mini")
+        assert agent.model == "gpt-5-mini"
+        assert len(agent.tools) == 4
