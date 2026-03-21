@@ -118,7 +118,7 @@ class TestGetLatestActivity:
 class TestGetActivitiesOnDate:
     @pytest.mark.asyncio
     async def test_get_activities_on_date_found(self):
-        """Test fetching activities for a specific date."""
+        """Test fetching activities for a specific date (returns first activity)."""
         from datetime import datetime
 
         activities_response = MagicMock()
@@ -129,7 +129,11 @@ class TestGetActivitiesOnDate:
         activities_response.raise_for_status = MagicMock()
 
         detail_response = MagicMock()
-        detail_response.json.return_value = {"id": 111, "type": "Run", "distance": 5000}
+        detail_response.json.return_value = {
+            "id": 111,
+            "type": "Run",
+            "distance": 5000,
+        }
         detail_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
@@ -154,12 +158,12 @@ class TestGetActivitiesOnDate:
         assert result["id"] == 111
 
     @pytest.mark.asyncio
-    async def test_get_activities_on_date_no_runs(self):
-        """Test that None is returned when no runs found on date."""
+    async def test_get_activities_on_date_none(self):
+        """Test that None is returned when no activities found on date."""
         from datetime import datetime
 
         mock_response = MagicMock()
-        mock_response.json.return_value = [{"id": 222, "type": "Ride"}]
+        mock_response.json.return_value = []
         mock_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
@@ -182,3 +186,65 @@ class TestGetActivitiesOnDate:
             )
 
         assert result is None
+
+
+class TestGetActivityZones:
+    @pytest.mark.asyncio
+    async def test_get_activity_zones(self):
+        """Test fetching activity zones."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = [
+            {"type": "heartrate", "distribution_buckets": []}
+        ]
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "app.agents.workout.strava_client.httpx.AsyncClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "app.agents.workout.strava_client.get_access_token",
+                return_value="token",
+            ),
+        ):
+            result = await strava_client.get_activity_zones(12345)
+
+        assert len(result) == 1
+        assert result[0]["type"] == "heartrate"
+
+
+class TestGetActivityLaps:
+    @pytest.mark.asyncio
+    async def test_get_activity_laps(self):
+        """Test fetching activity laps."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = [
+            {"name": "Lap 1", "distance": 1609.34, "moving_time": 500}
+        ]
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "app.agents.workout.strava_client.httpx.AsyncClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "app.agents.workout.strava_client.get_access_token",
+                return_value="token",
+            ),
+        ):
+            result = await strava_client.get_activity_laps(12345)
+
+        assert len(result) == 1
+        assert result[0]["name"] == "Lap 1"

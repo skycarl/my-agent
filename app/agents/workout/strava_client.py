@@ -65,6 +65,32 @@ async def get_activity(activity_id: int) -> dict:
         return response.json()
 
 
+async def get_activity_zones(activity_id: int) -> list[dict]:
+    """Fetch activity zone distributions (HR zones, power zones)."""
+    headers = await _get_headers()
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{STRAVA_API_BASE}/activities/{activity_id}/zones",
+            headers=headers,
+            timeout=15.0,
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+async def get_activity_laps(activity_id: int) -> list[dict]:
+    """Fetch activity laps."""
+    headers = await _get_headers()
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{STRAVA_API_BASE}/activities/{activity_id}/laps",
+            headers=headers,
+            timeout=15.0,
+        )
+        response.raise_for_status()
+        return response.json()
+
+
 async def get_latest_activity() -> dict:
     """Fetch the most recent activity with full detail."""
     headers = await _get_headers()
@@ -85,7 +111,7 @@ async def get_latest_activity() -> dict:
 
 
 async def get_activities_on_date(target_date: datetime) -> dict | None:
-    """Fetch the first Run activity on a given date, or None if not found."""
+    """Fetch the first activity on a given date, or None if not found."""
     start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
     end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=0)
 
@@ -104,9 +130,7 @@ async def get_activities_on_date(target_date: datetime) -> dict | None:
         response.raise_for_status()
         activities = response.json()
 
-    # Filter to runs
-    runs = [a for a in activities if a.get("type") == "Run"]
-    if not runs:
+    if not activities:
         return None
 
-    return await get_activity(runs[0]["id"])
+    return await get_activity(activities[0]["id"])
