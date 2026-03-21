@@ -640,8 +640,11 @@ def _workout_file_path(activity: dict) -> Path:
 
 
 def _save_workout(activity: dict, markdown: str) -> Path:
-    """Save workout markdown to file."""
+    """Save workout markdown to file. Skips if file already exists to preserve manual edits."""
     file_path = _workout_file_path(activity)
+    if file_path.exists():
+        logger.info(f"Workout file already exists at {file_path}, skipping save")
+        return file_path
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(markdown)
     logger.info(f"Workout saved to {file_path}")
