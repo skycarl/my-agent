@@ -2,8 +2,12 @@
 
 set -e
 
-log_file="deploy.log"
-exec > >(tee -i $log_file)
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+LOG_DIR="$REPO_DIR/deploy-logs"
+mkdir -p "$LOG_DIR"
+
+log_file="$LOG_DIR/deploy-$(date '+%Y%m%d-%H%M%S').log"
+exec > >(tee -i "$log_file")
 exec 2>&1
 
 echo "Pulling from git"

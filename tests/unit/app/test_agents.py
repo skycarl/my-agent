@@ -14,6 +14,7 @@ from app.agents.gardener_agent import create_gardener_agent
 from app.agents.commute_agent import create_commute_agent
 from app.agents.orchestrator_agent import create_orchestrator_agent
 from app.agents.scheduler_agent import create_scheduler_agent
+from app.agents.workout_agent import create_workout_agent
 
 
 class TestAgentConfiguration:
@@ -344,3 +345,26 @@ class TestAgentReasoningEffort:
         """Orchestrator agent should not have custom reasoning effort (uses SDK defaults)."""
         agent = create_orchestrator_agent()
         assert agent.model_settings.reasoning is None
+
+    def test_workout_agent_uses_sdk_defaults(self):
+        """Workout agent should not have custom reasoning effort (uses SDK defaults)."""
+        agent = create_workout_agent()
+        assert agent.model_settings.reasoning is None
+
+
+class TestWorkoutAgentConfiguration:
+    """Test workout agent configuration."""
+
+    def test_workout_agent_configuration(self):
+        """Test that Workout agent is properly configured."""
+        agent = create_workout_agent()
+        assert agent.name == "Workout"
+        assert len(agent.tools) == 4
+        assert agent.model is not None
+        assert "workout" in agent.instructions.lower()
+
+    def test_create_workout_agent_with_custom_model(self):
+        """Test that create_workout_agent creates agent with specified model."""
+        agent = create_workout_agent("gpt-5-mini")
+        assert agent.model == "gpt-5-mini"
+        assert len(agent.tools) == 4

@@ -9,10 +9,12 @@ from .gardener_agent import create_gardener_agent
 from .commute_agent import create_commute_agent
 from .orchestrator_agent import create_orchestrator_agent
 from .scheduler_agent import create_scheduler_agent
+from .workout_agent import create_workout_agent
 
 __all__ = [
     "create_gardener_agent",
     "create_commute_agent",
     "create_orchestrator_agent",
     "create_scheduler_agent",
+    "create_workout_agent",
 ]

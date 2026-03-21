@@ -105,6 +105,15 @@ class Config(BaseSettings):
         default="storage", description="Path to storage directory for persistent data"
     )
 
+    # Strava Configuration
+    strava_client_id: str = Field(default="", description="Strava OAuth2 client ID")
+    strava_client_secret: str = Field(
+        default="", description="Strava OAuth2 client secret"
+    )
+    strava_refresh_token: str = Field(
+        default="", description="Strava OAuth2 refresh token"
+    )
+
     # Version / Build Info (set at deploy time)
     git_commit: str = Field(
         default="", description="Git commit hash of the deployed build"
@@ -181,6 +190,11 @@ class Config(BaseSettings):
     def commute_overrides_path(self) -> str:
         """Get the commute overrides file path based on storage path."""
         return f"{self.storage_path}/commute_overrides.json"
+
+    @property
+    def workouts_path(self) -> str:
+        """Get the workouts directory path based on storage path."""
+        return f"{self.storage_path}/workouts"
 
     model_config = SettingsConfigDict(
         env_file=".env",
