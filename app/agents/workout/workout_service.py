@@ -33,8 +33,9 @@ WORKOUT_TYPE_MAP = {
 }
 
 
-def _format_duration(seconds: int) -> str:
+def _format_duration(seconds: int | float) -> str:
     """Format seconds into H:MM:SS or M:SS."""
+    seconds = int(seconds)
     hours = seconds // 3600
     minutes = (seconds % 3600) // 60
     secs = seconds % 60
