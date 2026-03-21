@@ -53,6 +53,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "obsidian_vault" {
     id     = "cleanup-old-versions"
     status = "Enabled"
 
+    filter {}
+
     noncurrent_version_expiration {
       noncurrent_days = var.noncurrent_version_retention_days
     }

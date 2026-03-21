@@ -135,6 +135,14 @@ poetry.lock
 
 .DS_Store
 
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+
+# Claude Code
+.claude/worktrees/
+
 # project specific
 garden_db.json
 storage/
