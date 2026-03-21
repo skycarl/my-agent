@@ -21,6 +21,7 @@ def test_config_defaults():
 
     # Test valid OpenAI models default
     expected_models = [
+        "gpt-5.4",
         "gpt-5.2",
         "gpt-5.2-pro",
         "gpt-5",
@@ -30,7 +31,7 @@ def test_config_defaults():
     assert config.valid_openai_models == expected_models
 
     # Test default model
-    assert config.default_model == "gpt-5.2"
+    assert config.default_model == "gpt-5.4"
 
     # Test Telegram bot token default
     assert config.telegram_bot_token == ""
@@ -94,7 +95,7 @@ def test_config_partial_env_override():
         config = Config()
 
         # x_token should use default
-        assert config.x_token == "123"
+        assert config.x_token == "12345678910"
         # openai_api_key should use env var
         assert config.openai_api_key == "sk-only-openai-key"
 
