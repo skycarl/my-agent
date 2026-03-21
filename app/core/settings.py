@@ -22,6 +22,7 @@ class Config(BaseSettings):
     # Valid OpenAI models that can be used
     valid_openai_models: list[str] = Field(
         default=[
+            "gpt-5.4",
             "gpt-5.2",
             "gpt-5.2-pro",
             "gpt-5",
@@ -33,7 +34,7 @@ class Config(BaseSettings):
 
     # Default model to use when no specific model is provided
     default_model: str = Field(
-        default="gpt-5.2", description="Default OpenAI model to use for agents"
+        default="gpt-5.4", description="Default OpenAI model to use for agents"
     )
 
     # Per-agent reasoning effort (valid: none, low, medium, high, xhigh)
