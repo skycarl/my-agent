@@ -138,6 +138,7 @@ poetry.lock
 # project specific
 garden_db.json
 storage/
+deploy-logs/
 
 environment.json
 settings.json
