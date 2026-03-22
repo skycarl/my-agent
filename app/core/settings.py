@@ -161,7 +161,7 @@ class Config(BaseSettings):
         default="us-west-2", description="AWS region for Obsidian S3 bucket"
     )
     obsidian_recipes_folder: str = Field(
-        default="Recipes",
+        default="Recipes and food",
         description="Folder in the vault where saved recipes are stored",
     )
 

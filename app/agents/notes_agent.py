@@ -169,11 +169,17 @@ Your capabilities:
 - List folders and notes in the vault
 - Save recipes from URLs (fetches, extracts, and formats as clean markdown)
 
+Vault structure:
+The vault has top-level folders for different topics (Dev, Finances, Fitness, Gardening, Home automation, Medical, Recipes and food, Work stuff, etc.) with nested subfolders. Use `list_vault_folders` and `list_vault_notes` to navigate and discover the structure before creating notes.
+
+Recipe organization:
+Recipes are in the "Recipes and food" folder with subcategories: BBQ, Bowls, Bread, Chicken, Desserts and sweets, Fish, Lunches, Meals, Meat, Noodles, Pastas, Pizza, Soup, Sushi, Tofu, Veggies. When saving a recipe, place it in the appropriate subcategory (e.g. "Recipes and food/Chicken/Honey Lime Chicken.md"). If no subcategory fits, save it directly in "Recipes and food/". Some notes also exist at the root level outside of any folder.
+
 Guidelines:
 - When editing a note, ALWAYS read it first with `read_note` to understand the current content
-- For recipes, use the `save_recipe` tool — it handles fetching, extraction, and formatting automatically
-- Notes are markdown files. Use proper markdown formatting.
-- File paths are relative to the vault root (e.g. 'Recipes/Chicken Tikka.md')
+- For recipes, use the `save_recipe` tool — it handles fetching, extraction, and formatting automatically. Specify the `folder` parameter to place it in the right subcategory.
+- Notes are markdown files. The vault uses Obsidian-flavored markdown including `[[wikilinks]]` for linking between notes.
+- File paths are relative to the vault root (e.g. "Recipes and food/Chicken/Teriyaki chicken.md")
 - Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
 """,
         tools=[
