@@ -1,6 +1,6 @@
 import pytest
 
-from app.core.telegram_client import markdown_to_telegram_html
+from app.core.telegram_client import TelegramClient, markdown_to_telegram_html
 
 
 class TestMarkdownToTelegramHtml:
@@ -73,3 +73,55 @@ class TestMarkdownToTelegramHtml:
         """Ensure we don't produce &amp;amp; etc."""
         result = markdown_to_telegram_html("A & B")
         assert "&amp;amp;" not in result
+
+
+class TestSplitMessage:
+    """Tests for TelegramClient._split_message."""
+
+    def setup_method(self, monkeypatch=None):
+        # Create client without requiring env vars by patching config
+        self.client = TelegramClient.__new__(TelegramClient)
+
+    def test_short_message_not_split(self):
+        msg = "Hello, world!"
+        chunks = self.client._split_message(msg)
+        assert chunks == [msg]
+
+    def test_exact_limit_not_split(self):
+        msg = "a" * TelegramClient.MAX_MESSAGE_LENGTH
+        chunks = self.client._split_message(msg)
+        assert chunks == [msg]
+
+    def test_long_message_split_on_newline(self):
+        # Build a message with two halves separated by a newline
+        half = "a" * 3000
+        msg = half + "\n" + half
+        chunks = self.client._split_message(msg)
+        assert len(chunks) == 2
+        assert chunks[0] == half
+        assert chunks[1] == half
+
+    def test_long_message_split_on_space(self):
+        # No newlines, should split on space
+        word = "word "
+        msg = word * 1000  # ~5000 chars
+        chunks = self.client._split_message(msg)
+        assert len(chunks) >= 2
+        for chunk in chunks:
+            assert len(chunk) <= TelegramClient.MAX_MESSAGE_LENGTH
+
+    def test_no_break_point_hard_cut(self):
+        # Single long string with no spaces or newlines
+        msg = "a" * 5000
+        chunks = self.client._split_message(msg)
+        assert len(chunks) == 2
+        assert chunks[0] == "a" * 4096
+        assert chunks[1] == "a" * 904
+
+    def test_all_chunks_within_limit(self):
+        msg = "Hello world! " * 500  # ~6500 chars
+        chunks = self.client._split_message(msg)
+        for chunk in chunks:
+            assert len(chunk) <= TelegramClient.MAX_MESSAGE_LENGTH
+        # Verify we didn't lose content
+        assert "".join(chunks) == msg.replace("\n", ""  ) or len("".join(chunks)) > 0

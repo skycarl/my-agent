@@ -75,11 +75,46 @@ class TelegramClient:
             )
         logger.debug("Telegram configuration validated successfully")
 
+    # Telegram API limit for message text
+    MAX_MESSAGE_LENGTH = 4096
+
+    def _split_message(self, message: str) -> list[str]:
+        """Split a message into chunks that fit within Telegram's limit.
+
+        Splits on newlines first, then on spaces, to avoid breaking mid-word.
+        """
+        if len(message) <= self.MAX_MESSAGE_LENGTH:
+            return [message]
+
+        chunks = []
+        remaining = message
+        while remaining:
+            if len(remaining) <= self.MAX_MESSAGE_LENGTH:
+                chunks.append(remaining)
+                break
+
+            # Try to split at a newline within the limit
+            split_pos = remaining.rfind("\n", 0, self.MAX_MESSAGE_LENGTH)
+            if split_pos == -1:
+                # No newline found, try a space
+                split_pos = remaining.rfind(" ", 0, self.MAX_MESSAGE_LENGTH)
+            if split_pos == -1:
+                # No good break point, hard cut
+                split_pos = self.MAX_MESSAGE_LENGTH
+
+            chunks.append(remaining[:split_pos])
+            remaining = remaining[split_pos:].lstrip("\n")
+
+        return chunks
+
     async def send_message(
         self, user_id: int, message: str, parse_mode: Optional[str] = None
     ) -> Tuple[bool, Optional[int]]:
         """
         Send a message to a Telegram user.
+
+        Messages exceeding Telegram's 4096-character limit are automatically
+        split into multiple messages.
 
         Args:
             user_id: Telegram user ID to send the message to
@@ -87,47 +122,60 @@ class TelegramClient:
             parse_mode: Optional parse mode (e.g., 'Markdown', 'HTML')
 
         Returns:
-            Tuple of (success: bool, message_id: Optional[int])
+            Tuple of (success: bool, message_id: Optional[int]) where message_id
+            is from the last successfully sent chunk.
         """
         try:
             self.validate_configuration()
 
-            # Prepare the request payload
-            payload = {"chat_id": user_id, "text": message}
-
-            if parse_mode:
-                payload["parse_mode"] = parse_mode
-
-            logger.debug(f"Sending Telegram message to user {user_id}")
-
-            # Make the API call to Telegram
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{self.base_url}/sendMessage", json=payload, timeout=30.0
+            chunks = self._split_message(message)
+            if len(chunks) > 1:
+                logger.debug(
+                    f"Message too long ({len(message)} chars), split into {len(chunks)} chunks"
                 )
 
-                if response.status_code == 200:
-                    response_data = response.json()
+            last_message_id = None
 
-                    if response_data.get("ok"):
-                        message_id = response_data.get("result", {}).get("message_id")
-                        logger.debug(
-                            f"Successfully sent Telegram message to user {user_id}, message_id: {message_id}"
-                        )
-                        return True, message_id
+            async with httpx.AsyncClient() as client:
+                for i, chunk in enumerate(chunks):
+                    payload = {"chat_id": user_id, "text": chunk}
+                    if parse_mode:
+                        payload["parse_mode"] = parse_mode
+
+                    logger.debug(
+                        f"Sending Telegram message to user {user_id}"
+                        + (f" (chunk {i + 1}/{len(chunks)})" if len(chunks) > 1 else "")
+                    )
+
+                    response = await client.post(
+                        f"{self.base_url}/sendMessage", json=payload, timeout=30.0
+                    )
+
+                    if response.status_code == 200:
+                        response_data = response.json()
+
+                        if response_data.get("ok"):
+                            last_message_id = response_data.get("result", {}).get(
+                                "message_id"
+                            )
+                            logger.debug(
+                                f"Successfully sent Telegram message to user {user_id}, message_id: {last_message_id}"
+                            )
+                        else:
+                            error_description = response_data.get(
+                                "description", "Unknown error"
+                            )
+                            logger.warning(
+                                f"Telegram API returned error for user {user_id}: {error_description}"
+                            )
+                            return False, None
                     else:
-                        error_description = response_data.get(
-                            "description", "Unknown error"
-                        )
                         logger.warning(
-                            f"Telegram API returned error for user {user_id}: {error_description}"
+                            f"Telegram API returned status {response.status_code} for user {user_id}: {response.text}"
                         )
                         return False, None
-                else:
-                    logger.warning(
-                        f"Telegram API returned status {response.status_code} for user {user_id}: {response.text}"
-                    )
-                    return False, None
+
+            return True, last_message_id
 
         except Exception as e:
             logger.error(f"Error sending Telegram message to user {user_id}: {str(e)}")
