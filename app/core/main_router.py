@@ -27,7 +27,6 @@ from app.core.task_store import (
 from app.core.task_manager import ALLOWED_TASK_ENDPOINTS
 from app.models.tasks import TaskSchedule, APICallConfig
 from app.core import telegram_client
-from app.core.telegram_client import markdown_to_telegram_html
 from app.core.timezone_utils import now_local
 from app.models.tasks import (
     AgentProcessingMetadata,
@@ -439,8 +438,8 @@ async def create_agent_response(request_body: AgentRequest, request: Request):
                         message_id,
                     ) = await telegram_client.telegram_client.send_message(
                         user_id=target_user_id,
-                        message=markdown_to_telegram_html(response_message),
-                        parse_mode="HTML",
+                        message=response_message,
+                        markdown=True,
                     )
 
                     if success:

@@ -108,7 +108,11 @@ class TelegramClient:
         return chunks
 
     async def send_message(
-        self, user_id: int, message: str, parse_mode: Optional[str] = None
+        self,
+        user_id: int,
+        message: str,
+        parse_mode: Optional[str] = None,
+        markdown: bool = False,
     ) -> Tuple[bool, Optional[int]]:
         """
         Send a message to a Telegram user.
@@ -120,6 +124,9 @@ class TelegramClient:
             user_id: Telegram user ID to send the message to
             message: Message text to send
             parse_mode: Optional parse mode (e.g., 'Markdown', 'HTML')
+            markdown: If True, message is raw markdown that will be split first,
+                then each chunk converted to Telegram HTML independently.
+                This avoids splitting in the middle of HTML tags.
 
         Returns:
             Tuple of (success: bool, message_id: Optional[int]) where message_id
@@ -128,7 +135,14 @@ class TelegramClient:
         try:
             self.validate_configuration()
 
-            chunks = self._split_message(message)
+            if markdown:
+                # Split raw markdown, then convert each chunk to HTML
+                raw_chunks = self._split_message(message)
+                chunks = [markdown_to_telegram_html(c) for c in raw_chunks]
+                parse_mode = "HTML"
+            else:
+                chunks = self._split_message(message)
+
             if len(chunks) > 1:
                 logger.debug(
                     f"Message too long ({len(message)} chars), split into {len(chunks)} chunks"
