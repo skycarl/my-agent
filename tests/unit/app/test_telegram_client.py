@@ -124,4 +124,4 @@ class TestSplitMessage:
         for chunk in chunks:
             assert len(chunk) <= TelegramClient.MAX_MESSAGE_LENGTH
         # Verify we didn't lose content
-        assert "".join(chunks) == msg.replace("\n", ""  ) or len("".join(chunks)) > 0
+        assert "".join(chunks) == msg.replace("\n", "") or len("".join(chunks)) > 0
