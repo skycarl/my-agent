@@ -13,6 +13,7 @@ from .gardener_agent import create_gardener_agent
 from .commute_agent import create_commute_agent
 from .scheduler_agent import create_scheduler_agent
 from .workout_agent import create_workout_agent
+from .logger_agent import create_logger_agent
 
 
 def create_orchestrator_agent(model: str = None) -> Agent:
@@ -33,6 +34,7 @@ def create_orchestrator_agent(model: str = None) -> Agent:
     commute_agent = create_commute_agent(agent_model)
     scheduler_agent = create_scheduler_agent(agent_model)
     workout_agent = create_workout_agent(agent_model)
+    logger_agent = create_logger_agent(agent_model)
 
     orchestrator = Agent(
         name="Orchestrator",
@@ -45,6 +47,7 @@ Routing guidelines:
 - Commute, transportation, or transit topics → Commute Assistant
 - "schedule", "remind", "repeat", cron patterns, or specific date/time → Scheduler
 - Workout, running, Strava, exercise, or training topics → Workout
+- "log", action logging, or log history queries → Logger
 - General questions → Handle directly
 
 When unsure, lean towards the most relevant specialized agent.
@@ -55,11 +58,17 @@ Scheduled task messages: If a message looks like a reminder rather than a genuin
 
 Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
 """,
-        handoffs=[gardener_agent, commute_agent, scheduler_agent, workout_agent],
+        handoffs=[
+            gardener_agent,
+            commute_agent,
+            scheduler_agent,
+            workout_agent,
+            logger_agent,
+        ],
         model=agent_model,
     )
 
     logger.debug(
-        f"Orchestrator agent created with model '{agent_model}' and handoffs to Gardener, Commute Assistant, Scheduler, and Workout agents"
+        f"Orchestrator agent created with model '{agent_model}' and handoffs to Gardener, Commute Assistant, Scheduler, Workout, and Logger agents"
     )
     return orchestrator

@@ -15,6 +15,7 @@ from app.agents.commute_agent import create_commute_agent
 from app.agents.orchestrator_agent import create_orchestrator_agent
 from app.agents.scheduler_agent import create_scheduler_agent
 from app.agents.workout_agent import create_workout_agent
+from app.agents.logger_agent import create_logger_agent
 
 
 class TestAgentConfiguration:
@@ -38,11 +39,20 @@ class TestAgentConfiguration:
         assert agent.instructions is not None
         assert "commute" in agent.instructions.lower()
 
+    def test_logger_agent_configuration(self):
+        """Test that Logger agent is properly configured."""
+        agent = create_logger_agent()
+        assert agent.name == "Logger"
+        assert len(agent.tools) == 2
+        assert agent.model is not None
+        assert agent.instructions is not None
+        assert "log" in agent.instructions.lower()
+
     def test_orchestrator_agent_configuration(self):
         """Test that Orchestrator agent is properly configured."""
         agent = create_orchestrator_agent()
         assert agent.name == "Orchestrator"
-        assert len(agent.handoffs) == 4
+        assert len(agent.handoffs) == 5
         assert agent.model is not None
         assert agent.instructions is not None
         assert "orchestrator" in agent.instructions.lower()
@@ -62,7 +72,7 @@ class TestAgentConfiguration:
         # Test that handoffs exist
         orchestrator = create_orchestrator_agent()
         assert orchestrator.handoffs is not None
-        assert len(orchestrator.handoffs) == 4
+        assert len(orchestrator.handoffs) == 5
 
 
 class TestAgentFactoryFunctions:
@@ -93,7 +103,7 @@ class TestAgentFactoryFunctions:
 
         assert agent.name == "Orchestrator"
         assert agent.model == custom_model
-        assert len(agent.handoffs) == 4
+        assert len(agent.handoffs) == 5
 
         # Verify that handoff agents also use the same model
         for handoff_agent in agent.handoffs:

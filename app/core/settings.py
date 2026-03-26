@@ -106,6 +106,19 @@ class Config(BaseSettings):
         default="storage", description="Path to storage directory for persistent data"
     )
 
+    # Home Assistant Configuration (for Logger agent location tracking)
+    home_assistant_url: str = Field(
+        default="",
+        description="Home Assistant base URL (e.g. http://homeassistant.local:8123)",
+    )
+    home_assistant_token: str = Field(
+        default="", description="Home Assistant long-lived access token"
+    )
+    home_assistant_phone_entity_id: str = Field(
+        default="",
+        description="Home Assistant device tracker entity ID for phone location (e.g. device_tracker.pixel_7)",
+    )
+
     # Strava Configuration
     strava_client_id: str = Field(default="", description="Strava OAuth2 client ID")
     strava_client_secret: str = Field(
@@ -169,6 +182,11 @@ class Config(BaseSettings):
     def commute_overrides_path(self) -> str:
         """Get the commute overrides file path based on storage path."""
         return f"{self.storage_path}/commute_overrides.json"
+
+    @property
+    def action_log_path(self) -> str:
+        """Get the action log CSV file path based on storage path."""
+        return f"{self.storage_path}/action_log.csv"
 
     @property
     def workouts_path(self) -> str:

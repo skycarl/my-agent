@@ -198,6 +198,7 @@ Available commands:
 /clear - Clear conversation history and start fresh
 /model - Select the OpenAI model to use
 /version - Show app version and deployed commit info
+/log <action> - Log an action (e.g., /log medication)
 
 Just send me any message and I'll respond using AI!
         """
@@ -435,6 +436,35 @@ Just send me any message and I'll respond using AI!
             logger.error(f"Error sending message to backend: {e}")
             # Note: We don't re-raise here since this is fire-and-forget
 
+    async def log_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /log command to log an action."""
+        if not update.message or not update.message.from_user:
+            logger.warning("Received /log command without user information")
+            return
+
+        user_id = update.message.from_user.id
+
+        if not self._is_authorized_user(user_id):
+            await self._log_unauthorized_access(update, "log command")
+            return
+
+        action = " ".join(context.args) if context.args else ""
+        if not action:
+            await update.message.reply_text(
+                "Usage: /log <action_name>\nExample: /log medication"
+            )
+            return
+
+        logger.info(f"Authorized user {user_id} logging action: {action}")
+
+        await context.bot.send_chat_action(
+            chat_id=update.message.chat_id, action="typing"
+        )
+
+        await self.send_message_to_backend(f"log {action}")
+
     async def set_model_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -627,6 +657,7 @@ Just send me any message and I'll respond using AI!
         self.application.add_handler(CommandHandler("clear", self.clear_command))
         self.application.add_handler(CommandHandler("model", self.set_model_command))
         self.application.add_handler(CommandHandler("version", self.version_command))
+        self.application.add_handler(CommandHandler("log", self.log_command))
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )
