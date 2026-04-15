@@ -29,7 +29,7 @@ dependencies = [
     "types-pytz>=2025.2.0.20250516",
     # Transitive dependency security patches
     "cryptography>=46.0.5",
-    "python-multipart>=0.0.22",
+    "python-multipart>=0.0.26",
     "virtualenv>=20.36.1",
     "filelock>=3.20.3",
     "urllib3>=2.6.3",
