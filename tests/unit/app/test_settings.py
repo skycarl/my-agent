@@ -93,7 +93,7 @@ def test_config_partial_env_override():
     env_vars = {"OPENAI_API_KEY": "sk-only-openai-key"}
 
     with patch.dict(os.environ, env_vars):
-        config = Config()
+        config = Config(_env_file=None)
 
         # x_token should use default
         assert config.x_token == "12345678910"
