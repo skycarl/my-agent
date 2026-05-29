@@ -92,7 +92,7 @@ def test_config_partial_env_override():
     """Test that only specified environment variables are overridden."""
     env_vars = {"OPENAI_API_KEY": "sk-only-openai-key"}
 
-    with patch.dict(os.environ, env_vars):
+    with patch.dict(os.environ, env_vars, clear=True):
         config = Config(_env_file=None)
 
         # x_token should use default
