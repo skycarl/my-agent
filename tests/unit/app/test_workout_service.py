@@ -22,6 +22,11 @@ SAMPLE_RUN_ACTIVITY = {
     "name": "Morning Run",
     "type": "Run",
     "sport_type": "Run",
+    "description": "Felt strong on the back half.\nLegs a little heavy at the start.",
+    "perceived_exertion": 6.0,
+    "suffer_score": 88,
+    "pr_count": 2,
+    "achievement_count": 5,
     "distance": 9978.1,  # ~6.2 miles
     "moving_time": 3134,  # ~52:14
     "elapsed_time": 3300,
@@ -233,6 +238,29 @@ class TestFormatWorkoutMarkdown:
         assert "46°F" in result  # 8°C
         assert "COROS PACE 3" in result
         assert "Trainer | No" in result
+
+    def test_run_training_metrics(self):
+        """Test that subjective effort and achievement metrics are included."""
+        result = format_workout_markdown(SAMPLE_RUN_ACTIVITY)
+
+        assert "Perceived Exertion (RPE) | 6/10" in result
+        assert "Relative Effort | 88" in result
+        assert "PRs | 2" in result
+        assert "Achievements | 5" in result
+
+    def test_run_description(self):
+        """Test that the Strava activity description is rendered."""
+        result = format_workout_markdown(SAMPLE_RUN_ACTIVITY)
+
+        assert "## Description" in result
+        assert "> Felt strong on the back half." in result
+        assert "> Legs a little heavy at the start." in result
+
+    def test_no_description_omitted(self):
+        """Test that the Description section is omitted when empty."""
+        activity = {**SAMPLE_RUN_ACTIVITY, "description": ""}
+        result = format_workout_markdown(activity)
+        assert "## Description" not in result
 
     def test_run_mile_splits_columns(self):
         """Test that mile splits have all required columns."""
