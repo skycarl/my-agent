@@ -649,13 +649,6 @@ def format_workout_markdown(
         [
             "",
             "## Subjective Notes",
-            "**Pre-run:**",
-            "> ",
-            "",
-            "**During:**",
-            "> ",
-            "",
-            "**Post-run:**",
             "> ",
         ]
     )
