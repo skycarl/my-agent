@@ -86,7 +86,7 @@ Tool usage:
 - Use `get_workout_by_date` ONLY when the user wants to fetch/import a workout from Strava for a specific date.
 - Use `get_workout_summary` when the user wants to SEE or RETRIEVE an existing workout (e.g., "send me today's workout", "show me my workout", "give me the markdown"). NEVER re-fetch from Strava when the user just wants to see what's already saved.
 - Use `update_workout_section` when the user wants to add subjective notes, fueling data, COROS extras, or context. Format the content as markdown matching the template structure:
-  - For "Subjective Notes": include **Pre-run:**, **During:**, **Post-run:** blockquote sections.
+  - For "Subjective Notes": write the user's notes verbatim as a blockquote. Do NOT split them into pre/during/post or any other sections—preserve their wording and order as given.
   - For "Fueling": use a markdown table with columns Timing, Item, Carbs, Caffeine, Sodium, Water.
   - For "COROS Extras": use a markdown table with Metric and Value columns.
   - For "Context": use a blockquote with the context text.

@@ -151,6 +151,26 @@ def _summary_row(label: str, value) -> str:
     return f"| {label} | {value} |"
 
 
+def _build_training_rows(activity: dict) -> list[str]:
+    """Build subjective-effort and achievement rows shared across activity types.
+
+    These come straight from Strava's detailed activity (RPE, Relative Effort,
+    PRs, achievements) and apply to runs, rides, and other activities alike.
+    """
+    rows = []
+    rpe = activity.get("perceived_exertion")
+    if rpe is not None:
+        rows.append(_summary_row("Perceived Exertion (RPE)", f"{rpe:g}/10"))
+    suffer = activity.get("suffer_score")
+    if suffer is not None:
+        rows.append(_summary_row("Relative Effort", int(suffer)))
+    if activity.get("pr_count"):
+        rows.append(_summary_row("PRs", int(activity["pr_count"])))
+    if activity.get("achievement_count"):
+        rows.append(_summary_row("Achievements", int(activity["achievement_count"])))
+    return rows
+
+
 def _build_run_summary(activity: dict) -> list[str]:
     """Build the summary table rows for a run activity."""
     distance_mi = activity["distance"] / METERS_PER_MILE
@@ -234,6 +254,7 @@ def _build_run_summary(activity: dict) -> list[str]:
     if activity.get("device_name"):
         rows.append(_summary_row("Device", activity["device_name"]))
 
+    rows.extend(_build_training_rows(activity))
     return rows
 
 
@@ -292,6 +313,7 @@ def _build_ride_summary(activity: dict) -> list[str]:
     if activity.get("device_name"):
         rows.append(_summary_row("Device", activity["device_name"]))
 
+    rows.extend(_build_training_rows(activity))
     return rows
 
 
@@ -307,6 +329,7 @@ def _build_other_summary(activity: dict) -> list[str]:
     if activity.get("calories"):
         rows.append(_summary_row("Calories", f"{int(activity['calories'])} kcal"))
 
+    rows.extend(_build_training_rows(activity))
     return rows
 
 
@@ -517,6 +540,18 @@ def _format_power_zones(zones_data: list[dict]) -> list[str]:
     return lines
 
 
+def _format_description(activity: dict) -> list[str]:
+    """Format the Strava activity description as a blockquote section."""
+    description = (activity.get("description") or "").strip()
+    if not description:
+        return []
+
+    lines = ["", "## Description"]
+    for line in description.splitlines():
+        lines.append(f"> {line}" if line.strip() else ">")
+    return lines
+
+
 def _format_best_efforts(activity: dict) -> list[str]:
     """Format best efforts table (runs only)."""
     efforts = activity.get("best_efforts", [])
@@ -577,6 +612,9 @@ def format_workout_markdown(
     if gear and gear.get("name"):
         lines.append(f"**Gear:** {gear['name']}")
 
+    # Strava activity description (the note entered on Strava)
+    lines.extend(_format_description(activity))
+
     # Summary table
     lines.extend(["", "## Summary", "| Metric | Value |", "|---|---|"])
     if activity_type == "run":
@@ -611,13 +649,6 @@ def format_workout_markdown(
         [
             "",
             "## Subjective Notes",
-            "**Pre-run:**",
-            "> ",
-            "",
-            "**During:**",
-            "> ",
-            "",
-            "**Post-run:**",
             "> ",
         ]
     )
