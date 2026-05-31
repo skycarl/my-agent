@@ -31,13 +31,13 @@ class TestAsyncEndpoints:
                 mock_config.default_model = "gpt-5-mini"
                 mock_config.openai_timeout = 30
                 mock_config.openai_max_retries = 3
-                mock_config.authorized_user_id = 12345
+                mock_config.owner_user_id = 12345
                 mock_config.max_conversation_history = 10
                 mock_config.x_token = "12345678910"
 
                 # Also mock the auth config
                 auth_config.x_token = "12345678910"
-                auth_config.authorized_user_id = 12345
+                auth_config.owner_user_id = 12345
 
                 yield mock_config
 
@@ -244,35 +244,43 @@ class TestAsyncEndpoints:
                         data["agent_processing"]["primary_agent"] == "Alert Processor"
                     )
 
-    def test_clear_conversation_endpoint_success(
-        self, client, auth_headers, mock_session
-    ):
-        """Test successful conversation clearing."""
-        with patch("app.core.auth.config") as auth_config:
-            auth_config.x_token = "12345678910"
-            response = client.post("/clear_conversation", headers=auth_headers)
+    def test_clear_conversation_endpoint_success(self, client, auth_headers):
+        """Test successful conversation clearing for a specific conversation."""
+        with patch(
+            "app.core.main_router.clear_session", new_callable=AsyncMock
+        ) as mock_clear:
+            with patch("app.core.auth.config") as auth_config:
+                auth_config.x_token = "12345678910"
+                response = client.post(
+                    "/clear_conversation",
+                    json={"conversation_id": "999"},
+                    headers=auth_headers,
+                )
 
-            assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is True
-        assert "cleared successfully" in data["message"]
-
-        mock_session.clear_session.assert_awaited_once()
+                assert response.status_code == 200
+                data = response.json()
+                assert data["success"] is True
+                assert "cleared successfully" in data["message"]
+                mock_clear.assert_awaited_once_with("999")
 
     def test_clear_conversation_endpoint_failure(self, client, auth_headers):
         """Test conversation clearing failure."""
-        with patch("app.core.main_router.get_session") as mock_get_session:
+        with patch(
+            "app.core.main_router.clear_session", new_callable=AsyncMock
+        ) as mock_clear:
             with patch("app.core.auth.config") as auth_config:
-                mock_sess = MagicMock()
-                mock_sess.clear_session = AsyncMock(side_effect=Exception("DB error"))
-                mock_get_session.return_value = mock_sess
+                mock_clear.side_effect = Exception("DB error")
                 auth_config.x_token = "12345678910"
 
-                response = client.post("/clear_conversation", headers=auth_headers)
+                response = client.post(
+                    "/clear_conversation",
+                    json={"conversation_id": "999"},
+                    headers=auth_headers,
+                )
 
                 assert response.status_code == 500
-            data = response.json()
-            assert data["success"] is False
+                data = response.json()
+                assert data["success"] is False
 
     def test_authentication_required(self, client):
         """Test that endpoints require authentication."""

@@ -8,98 +8,109 @@ from agents import SQLiteSession
 
 from app.core.session_manager import SafeSQLiteSession
 
+CONV = "12345"
+
 
 class TestSessionManager:
-    """Test the session manager singleton."""
+    """Test the per-conversation session manager."""
 
     @pytest.fixture(autouse=True)
     def _reset(self):
-        """Reset the global singleton before and after each test."""
+        """Reset the session cache before and after each test."""
         import app.core.session_manager as sm
 
-        sm._session = None
+        sm.reset_session()
         yield
-        if sm._session is not None:
-            sm._session.close()
-            sm._session = None
+        sm.reset_session()
 
     def test_get_session_creates_instance(self, tmp_path):
         """Verify get_session returns a SQLiteSession."""
         with patch("app.core.session_manager.config") as mock_config:
             mock_config.storage_path = str(tmp_path)
-            mock_config.authorized_user_id = 12345
             mock_config.max_conversation_history = 10
 
             from app.core.session_manager import get_session
 
-            session = get_session()
+            session = get_session(CONV)
 
             assert isinstance(session, SafeSQLiteSession)
             assert isinstance(session, SQLiteSession)  # subclass of SQLiteSession
 
-    def test_get_session_returns_singleton(self, tmp_path):
-        """Same instance returned on repeated calls."""
+    def test_get_session_caches_per_conversation(self, tmp_path):
+        """Same instance returned for the same conversation; distinct for others."""
         with patch("app.core.session_manager.config") as mock_config:
             mock_config.storage_path = str(tmp_path)
-            mock_config.authorized_user_id = 12345
             mock_config.max_conversation_history = 10
 
             from app.core.session_manager import get_session
 
-            session1 = get_session()
-            session2 = get_session()
+            session1 = get_session(CONV)
+            session2 = get_session(CONV)
+            other = get_session("99999")
 
             assert session1 is session2
+            assert other is not session1
 
-    def test_reset_session_clears_instance(self, tmp_path):
-        """reset_session clears and closes the singleton."""
+    def test_reset_session_clears_instances(self, tmp_path):
+        """reset_session closes and clears all cached sessions."""
         with patch("app.core.session_manager.config") as mock_config:
             mock_config.storage_path = str(tmp_path)
-            mock_config.authorized_user_id = 12345
             mock_config.max_conversation_history = 10
 
             from app.core.session_manager import get_session, reset_session
             import app.core.session_manager as sm
 
-            get_session()
-            assert sm._session is not None
+            get_session(CONV)
+            assert sm._sessions
 
             reset_session()
-            assert sm._session is None
+            assert sm._sessions == {}
 
     @pytest.mark.asyncio
-    async def test_session_clear(self, tmp_path):
-        """Verify clear_session works without error."""
+    async def test_clear_session(self, tmp_path):
+        """Verify clear_session empties a single conversation's history."""
         with patch("app.core.session_manager.config") as mock_config:
             mock_config.storage_path = str(tmp_path)
-            mock_config.authorized_user_id = 12345
+            mock_config.max_conversation_history = 10
+
+            from app.core.session_manager import get_session, clear_session
+
+            session = get_session(CONV)
+
+            await session.add_items([{"role": "user", "content": "hello"}])
+            assert len(await session.get_items()) > 0
+
+            await clear_session(CONV)
+
+            assert len(await session.get_items()) == 0
+
+    @pytest.mark.asyncio
+    async def test_sessions_are_isolated(self, tmp_path):
+        """Items added to one conversation do not appear in another."""
+        with patch("app.core.session_manager.config") as mock_config:
+            mock_config.storage_path = str(tmp_path)
             mock_config.max_conversation_history = 10
 
             from app.core.session_manager import get_session
 
-            session = get_session()
+            a = get_session("conv_a")
+            b = get_session("conv_b")
 
-            # Add an item then clear
-            await session.add_items([{"role": "user", "content": "hello"}])
-            items_before = await session.get_items()
-            assert len(items_before) > 0
+            await a.add_items([{"role": "user", "content": "only in a"}])
 
-            await session.clear_session()
-
-            items_after = await session.get_items()
-            assert len(items_after) == 0
+            assert len(await a.get_items()) == 1
+            assert len(await b.get_items()) == 0
 
     @pytest.mark.asyncio
     async def test_session_limit(self, tmp_path):
         """Verify SessionSettings limit is respected."""
         with patch("app.core.session_manager.config") as mock_config:
             mock_config.storage_path = str(tmp_path)
-            mock_config.authorized_user_id = 12345
             mock_config.max_conversation_history = 3
 
             from app.core.session_manager import get_session
 
-            session = get_session()
+            session = get_session(CONV)
 
             # Add more items than the limit
             for i in range(5):
@@ -113,12 +124,11 @@ class TestSessionManager:
         """Verify that orphaned function_call_output items are dropped after truncation."""
         with patch("app.core.session_manager.config") as mock_config:
             mock_config.storage_path = str(tmp_path)
-            mock_config.authorized_user_id = 12345
             mock_config.max_conversation_history = 3
 
             from app.core.session_manager import get_session
 
-            session = get_session()
+            session = get_session(CONV)
 
             # Simulate a conversation: function_call + output, then a user message.
             # With limit=3, the function_call will be truncated but its output survives.
@@ -176,12 +186,11 @@ class TestSessionManager:
         """Verify the SQLite database file is created in the storage path."""
         with patch("app.core.session_manager.config") as mock_config:
             mock_config.storage_path = str(tmp_path)
-            mock_config.authorized_user_id = 12345
             mock_config.max_conversation_history = 10
 
             from app.core.session_manager import get_session
 
-            get_session()
+            get_session(CONV)
 
             db_file = tmp_path / "conversation.db"
             assert db_file.exists()

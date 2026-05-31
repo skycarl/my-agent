@@ -8,6 +8,7 @@ to the application's /agent_response endpoint.
 from agents import Agent, function_tool
 from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
 from loguru import logger
+from app.core.conversation_context import get_conversation_id
 from app.core.settings import config, get_model_settings_for_agent
 from app.agents.scheduler.manage_tools import (
     list_scheduled_tasks,
@@ -59,6 +60,10 @@ async def schedule_task(
         else:
             return "Error: schedule_type must be one of: cron, interval, date"
 
+        # Lock the task to the conversation that created it so its notifications
+        # and agent-mode replies route back to the same chat.
+        conversation_id = get_conversation_id()
+
         # Build task configuration
         new_task: dict = {
             "id": None,
@@ -68,6 +73,7 @@ async def schedule_task(
             "enabled": True,
             "description": description,
             "schedule": schedule,
+            "conversation_id": conversation_id,
             # Avoid duplicate user notifications from retries on long-running agent calls
             "max_retries": 0,
             "retry_delay": 60,
@@ -79,10 +85,14 @@ async def schedule_task(
                 "parse_mode": "HTML",
             }
         else:
+            payload: dict = {"input": instruction} if instruction else {}
+            # Carry the conversation_id so the fired call replies to the right chat.
+            if conversation_id is not None:
+                payload["conversation_id"] = conversation_id
             new_task["api_call"] = {
                 "endpoint": "/agent_response",
                 "method": api_method or "POST",
-                "payload": {"input": instruction} if instruction else {},
+                "payload": payload,
                 "headers": None,
                 "timeout": 120,
             }

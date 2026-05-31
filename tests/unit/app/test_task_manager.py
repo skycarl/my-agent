@@ -30,7 +30,7 @@ def test_config(tmp_path, monkeypatch):
         storage_path=str(tmp_path),
         app_url="http://test-host:8000",
         x_token="test-token-abc",
-        authorized_user_id=12345,
+        owner_user_id=12345,
     )
     monkeypatch.setattr("app.core.task_manager.config", cfg)
     return cfg

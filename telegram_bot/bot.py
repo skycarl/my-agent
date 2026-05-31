@@ -19,6 +19,7 @@ from telegram.ext import (
     ContextTypes,
 )
 
+from app.core import access_control
 from app.core.settings import config
 from app.core.logger import init_logging
 
@@ -46,7 +47,7 @@ class TelegramBot:
         self.token = config.telegram_bot_token
         self.app_url = config.app_url
         self.x_token = config.x_token
-        self.authorized_user_id = config.authorized_user_id
+        self.owner_user_id = config.owner_user_id
         self.max_conversation_history = config.max_conversation_history
         self.selected_model: str = config.default_model
         self.application: Application | None = None
@@ -57,17 +58,29 @@ class TelegramBot:
             logger.error("TELEGRAM_BOT_TOKEN is not set in environment variables")
             raise ValueError("TELEGRAM_BOT_TOKEN must be set in environment variables")
 
-        if not self.authorized_user_id:
-            logger.error("AUTHORIZED_USER_ID is not set in environment variables")
-            raise ValueError("AUTHORIZED_USER_ID must be set in environment variables")
+        if not self.owner_user_id:
+            logger.error("OWNER_USER_ID is not set in environment variables")
+            raise ValueError("OWNER_USER_ID must be set in environment variables")
 
         logger.info(
-            f"TelegramBot initialized successfully with authorized user ID: {self.authorized_user_id}"
+            f"TelegramBot initialized successfully with owner user ID: {self.owner_user_id}"
         )
 
-    def _is_authorized_user(self, user_id: int) -> bool:
-        """Check if the user is authorized to use the bot."""
-        return user_id == self.authorized_user_id
+    def _is_authorized(self, update: Update) -> bool:
+        """Check whether the user/chat behind this update may use the bot."""
+        message = update.effective_message
+        user = update.effective_user
+        chat = update.effective_chat
+        if not message or not user or not chat:
+            return False
+        if user.is_bot:
+            return False
+        return access_control.is_authorized(user.id, chat.id, chat.type)
+
+    def _is_owner(self, update: Update) -> bool:
+        """Check whether the update originated from the owner."""
+        user = update.effective_user
+        return bool(user and user.id == self.owner_user_id)
 
     async def _notify_admin_unauthorized_access(
         self, update: Update, action: str = "message"
@@ -104,9 +117,9 @@ class TelegramBot:
                 f"**Message ID:** `{update.message.message_id}`"
             )
 
-            # Send notification to admin
+            # Send notification to owner
             await self.application.bot.send_message(
-                chat_id=self.authorized_user_id,
+                chat_id=self.owner_user_id,
                 text=notification_text,
                 parse_mode="Markdown",
             )
@@ -162,7 +175,7 @@ class TelegramBot:
         user_id = update.message.from_user.id
 
         # Check authorization
-        if not self._is_authorized_user(user_id):
+        if not self._is_authorized(update):
             await self._log_unauthorized_access(update, "start command")
             return  # Silently ignore unauthorized users
 
@@ -184,7 +197,7 @@ class TelegramBot:
         user_id = update.message.from_user.id
 
         # Check authorization
-        if not self._is_authorized_user(user_id):
+        if not self._is_authorized(update):
             await self._log_unauthorized_access(update, "help command")
             return  # Silently ignore unauthorized users
 
@@ -198,6 +211,13 @@ Available commands:
 /clear - Clear conversation history and start fresh
 /model - Select the OpenAI model to use
 /version - Show app version and deployed commit info
+
+Owner-only commands:
+/adduser <id> - Authorize a user
+/removeuser <id> - Remove a user
+/listusers - Show the allowlist
+/allowgroup - Authorize the current group (run in the group)
+/disallowgroup - Remove the current group
 
 Just send me any message and I'll respond using AI!
         """
@@ -232,7 +252,7 @@ Just send me any message and I'll respond using AI!
 
         user_id = update.message.from_user.id
 
-        if not self._is_authorized_user(user_id):
+        if not self._is_authorized(update):
             await self._log_unauthorized_access(update, "version command")
             return
 
@@ -259,7 +279,7 @@ Just send me any message and I'll respond using AI!
         user_id = update.message.from_user.id
 
         # Check authorization
-        if not self._is_authorized_user(user_id):
+        if not self._is_authorized(update):
             await self._log_unauthorized_access(update, "clear command")
             return  # Silently ignore unauthorized users
 
@@ -275,6 +295,7 @@ Just send me any message and I'll respond using AI!
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{self.app_url}/clear_conversation",
+                    json={"conversation_id": str(update.message.chat_id)},
                     headers=headers,
                     timeout=10.0,
                 )
@@ -299,6 +320,102 @@ Just send me any message and I'll respond using AI!
                 "❌ Failed to clear conversation history. Please try again."
             )
 
+    # -----------------------
+    # Owner-only allowlist administration
+    # -----------------------
+
+    async def adduser_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /adduser <user_id> (owner only)."""
+        if not update.message or not self._is_owner(update):
+            return
+        if not context.args or not context.args[0].lstrip("-").isdigit():
+            await update.message.reply_text("Usage: /adduser <telegram_user_id>")
+            return
+        target = int(context.args[0])
+        added = access_control.add_user(target)
+        await update.message.reply_text(
+            f"✅ Authorized user {target}."
+            if added
+            else f"User {target} already authorized."
+        )
+        logger.info(f"Owner added user {target} (new={added})")
+
+    async def removeuser_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /removeuser <user_id> (owner only)."""
+        if not update.message or not self._is_owner(update):
+            return
+        if not context.args or not context.args[0].lstrip("-").isdigit():
+            await update.message.reply_text("Usage: /removeuser <telegram_user_id>")
+            return
+        target = int(context.args[0])
+        removed = access_control.remove_user(target)
+        await update.message.reply_text(
+            f"✅ Removed user {target}."
+            if removed
+            else f"User {target} was not on the list."
+        )
+        logger.info(f"Owner removed user {target} (existed={removed})")
+
+    async def allowgroup_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /allowgroup — authorize the current group (owner only, run in the group)."""
+        if (
+            not update.message
+            or not update.effective_chat
+            or not self._is_owner(update)
+        ):
+            return
+        chat = update.effective_chat
+        if chat.type not in ("group", "supergroup"):
+            await update.message.reply_text(
+                "Run /allowgroup inside the group you want to authorize."
+            )
+            return
+        added = access_control.add_group(chat.id)
+        await update.message.reply_text(
+            f"✅ Authorized this group ({chat.id})."
+            if added
+            else "This group is already authorized."
+        )
+        logger.info(f"Owner allowed group {chat.id} (new={added})")
+
+    async def disallowgroup_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /disallowgroup — deauthorize the current group (owner only)."""
+        if (
+            not update.message
+            or not update.effective_chat
+            or not self._is_owner(update)
+        ):
+            return
+        chat = update.effective_chat
+        removed = access_control.remove_group(chat.id)
+        await update.message.reply_text(
+            f"✅ Removed this group ({chat.id})."
+            if removed
+            else "This group was not authorized."
+        )
+        logger.info(f"Owner disallowed group {chat.id} (existed={removed})")
+
+    async def listusers_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /listusers — show the current allowlist (owner only)."""
+        if not update.message or not self._is_owner(update):
+            return
+        data = access_control.list_authorized()
+        users = ", ".join(str(u) for u in data["users"]) or "(none)"
+        groups = ", ".join(str(g) for g in data["groups"]) or "(none)"
+        await update.message.reply_text(
+            f"Owner: {self.owner_user_id}\nUsers: {users}\nGroups: {groups}"
+        )
+
     async def handle_message(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -310,7 +427,7 @@ Just send me any message and I'll respond using AI!
         user_id = update.message.from_user.id
 
         # Check authorization first
-        if not self._is_authorized_user(user_id):
+        if not self._is_authorized(update):
             await self._log_unauthorized_access(update, "message")
             return  # Silently ignore unauthorized users
 
@@ -334,7 +451,9 @@ Just send me any message and I'll respond using AI!
             )
 
             # Make fire-and-forget API call to backend (async processing)
-            await self.send_message_to_backend(message_data.text)
+            await self.send_message_to_backend(
+                message_data.text, conversation_id=str(message_data.chat_id)
+            )
 
             logger.debug(
                 f"Sent message to backend for async processing: {message_data.text}"
@@ -361,7 +480,7 @@ Just send me any message and I'll respond using AI!
 
         user_id = update.message.from_user.id
 
-        if not self._is_authorized_user(user_id):
+        if not self._is_authorized(update):
             await self._log_unauthorized_access(update, "photo")
             return
 
@@ -382,7 +501,11 @@ Just send me any message and I'll respond using AI!
                 chat_id=update.message.chat_id, action="typing"
             )
 
-            await self.send_message_to_backend(text, image_base64=image_base64)
+            await self.send_message_to_backend(
+                text,
+                conversation_id=str(update.message.chat_id),
+                image_base64=image_base64,
+            )
 
             logger.debug("Sent photo message to backend for async processing")
 
@@ -393,12 +516,20 @@ Just send me any message and I'll respond using AI!
             )
 
     async def send_message_to_backend(
-        self, message: str, *, image_base64: str | None = None
+        self,
+        message: str,
+        *,
+        conversation_id: str,
+        image_base64: str | None = None,
     ) -> None:
         """Send message to backend for async processing (fire-and-forget)."""
         try:
             # Prepare the request with single input message
-            api_request = {"input": message, "model": self.selected_model}
+            api_request = {
+                "input": message,
+                "model": self.selected_model,
+                "conversation_id": conversation_id,
+            }
 
             if image_base64:
                 api_request["image_base64"] = image_base64
@@ -446,7 +577,7 @@ Just send me any message and I'll respond using AI!
         user_id = update.message.from_user.id
 
         # Authorization check
-        if not self._is_authorized_user(user_id):
+        if not self._is_authorized(update):
             await self._log_unauthorized_access(update, "model command")
             return  # Silently ignore unauthorized users
 
@@ -535,7 +666,7 @@ Just send me any message and I'll respond using AI!
         user_id = update.callback_query.from_user.id
 
         # Authorization check
-        if not self._is_authorized_user(user_id):
+        if not self._is_authorized(update):
             await self._log_unauthorized_access(update, "model callback")
             return  # Silently ignore unauthorized users
 
@@ -627,6 +758,19 @@ Just send me any message and I'll respond using AI!
         self.application.add_handler(CommandHandler("clear", self.clear_command))
         self.application.add_handler(CommandHandler("model", self.set_model_command))
         self.application.add_handler(CommandHandler("version", self.version_command))
+        self.application.add_handler(CommandHandler("adduser", self.adduser_command))
+        self.application.add_handler(
+            CommandHandler("removeuser", self.removeuser_command)
+        )
+        self.application.add_handler(
+            CommandHandler("listusers", self.listusers_command)
+        )
+        self.application.add_handler(
+            CommandHandler("allowgroup", self.allowgroup_command)
+        )
+        self.application.add_handler(
+            CommandHandler("disallowgroup", self.disallowgroup_command)
+        )
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )

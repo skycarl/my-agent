@@ -16,7 +16,8 @@ from app.agents.alert_processor_agent import create_alert_processor_agent
 from app.core import agent_response_handler
 from app.core.agent_response_handler import AgentResponseHandler
 from app.core.auth import verify_token
-from app.core.session_manager import get_session
+from app.core.conversation_context import set_conversation_id
+from app.core.session_manager import get_session, clear_session
 from app.core.scheduler import scheduler_service
 from app.core.settings import config
 from app.core.task_store import (
@@ -67,6 +68,9 @@ class AgentRequest(BaseModel):
     )
     model: Optional[str] = None  # Optional model override
     image_base64: Optional[str] = None  # Optional base64-encoded image
+    conversation_id: Optional[str] = (
+        None  # Conversation (Telegram chat_id) this message belongs to
+    )
 
     def model_post_init(self, __context) -> None:
         """Validate that either input or messages is provided, but not both."""
@@ -134,6 +138,7 @@ class NewTaskRequest(BaseModel):
     schedule: dict
     api_call: Optional[dict] = None
     notification: Optional[dict] = None
+    conversation_id: Optional[str] = None
     max_retries: Optional[int] = None
     retry_delay: Optional[int] = None
 
@@ -347,6 +352,11 @@ async def create_agent_response(request_body: AgentRequest, request: Request):
         else:
             raise HTTPException(status_code=400, detail="No input or messages provided")
 
+        # Resolve the conversation this request belongs to (Telegram chat_id as a
+        # string). Falls back to the owner when unspecified (e.g. legacy tasks).
+        conversation_id = request_body.conversation_id or str(config.owner_user_id)
+        set_conversation_id(conversation_id)
+
         # Determine which model to use (default to config default for agents)
         model = request_body.model or config.default_model
         logger.debug(f"Using model '{model}' for this agent request")
@@ -405,7 +415,7 @@ async def create_agent_response(request_body: AgentRequest, request: Request):
                 run_config=RunConfig(workflow_name="scheduled_task"),
             )
         else:
-            session = get_session()
+            session = get_session(conversation_id)
             result = await Runner.run(
                 orchestrator_agent,
                 input=agent_input,
@@ -422,16 +432,16 @@ async def create_agent_response(request_body: AgentRequest, request: Request):
             should_respond,
             response_message,
         ) = await agent_response_handler.AgentResponseHandler.process_user_query_response(
-            response=result.final_output, user_id=config.authorized_user_id
+            response=result.final_output, conversation_id=conversation_id
         )
 
         send_success = False
         telegram_message_id = None
 
         if should_respond and response_message.strip():
-            # Send response directly to user via Telegram
+            # Send response directly to the originating conversation via Telegram
             try:
-                target_user_id = config.authorized_user_id
+                target_user_id = int(conversation_id) if conversation_id else None
                 if target_user_id:
                     (
                         success,
@@ -454,7 +464,7 @@ async def create_agent_response(request_body: AgentRequest, request: Request):
                         )
                 else:
                     logger.warning(
-                        "No authorized user ID configured for sending response"
+                        "No conversation target resolved for sending response"
                     )
 
             except Exception as e:
@@ -477,9 +487,10 @@ async def create_agent_response(request_body: AgentRequest, request: Request):
     except Exception as e:
         logger.error(f"Error in /agent_response endpoint: {str(e)}")
 
-        # Send error message directly to user via Telegram
+        # Send error message back to the originating conversation via Telegram
         try:
-            target_user_id = config.authorized_user_id
+            conversation_id = request_body.conversation_id or str(config.owner_user_id)
+            target_user_id = int(conversation_id) if conversation_id else None
             if target_user_id:
                 error_message = (
                     f"Sorry, I encountered an error processing your request: {str(e)}"
@@ -632,7 +643,7 @@ async def process_alert(request: AlertRequest):
                     success,
                     message_id,
                 ) = await telegram_client.telegram_client.send_message(
-                    user_id=config.authorized_user_id,
+                    user_id=config.owner_user_id,
                     message=sanitized_message,
                     parse_mode="HTML",
                 )
@@ -752,23 +763,32 @@ async def process_alert(request: AlertRequest):
         return JSONResponse(status_code=500, content=jsonable_encoder(error_response))
 
 
+class ClearConversationRequest(BaseModel):
+    """Request model for clearing a single conversation."""
+
+    conversation_id: Optional[str] = None
+
+
 @router.post(
     "/clear_conversation", status_code=200, dependencies=[Depends(verify_token)]
 )
-async def clear_conversation():
+async def clear_conversation(request_body: Optional[ClearConversationRequest] = None):
     """
-    Clear conversation history for the authorized user.
+    Clear conversation history for a single conversation.
 
-    This endpoint is called by the Telegram bot when the user uses the /clear command.
+    This endpoint is called by the Telegram bot when a user uses the /clear command.
+    When no conversation_id is provided, the owner's conversation is cleared.
 
     Returns:
         Success confirmation
     """
     try:
-        session = get_session()
-        await session.clear_session()
+        conversation_id = (
+            request_body.conversation_id if request_body else None
+        ) or str(config.owner_user_id)
+        await clear_session(conversation_id)
 
-        logger.info("Successfully cleared conversation history")
+        logger.info(f"Successfully cleared conversation history for {conversation_id}")
         return JSONResponse(
             content={
                 "success": True,
@@ -805,12 +825,12 @@ async def send_telegram_message(request: TelegramMessageRequest):
     """
     try:
         # Determine target user ID
-        target_user_id = request.user_id or config.authorized_user_id
+        target_user_id = request.user_id or config.owner_user_id
 
         if not target_user_id:
             raise HTTPException(
                 status_code=400,
-                detail="No target user specified and no authorized user configured",
+                detail="No target user specified and no owner configured",
             )
 
         logger.debug(

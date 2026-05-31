@@ -108,6 +108,13 @@ class TaskConfig(BaseModel):
         description="Notification configuration (required for notify mode)",
     )
 
+    # Conversation this task belongs to (Telegram chat_id as a string). Notifications
+    # and agent-mode replies route back here. None falls back to the owner.
+    conversation_id: Optional[str] = Field(
+        default=None,
+        description="Conversation (Telegram chat_id) that spawned this task",
+    )
+
     # Task metadata
     description: Optional[str] = Field(default=None, description="Task description")
     max_retries: int = Field(default=3, description="Maximum number of retry attempts")

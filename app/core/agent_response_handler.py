@@ -106,10 +106,10 @@ class AgentResponseHandler:
             # Import here to avoid circular imports
             from app.core.telegram_client import telegram_client
 
-            target_user_id = config.authorized_user_id
+            target_user_id = config.owner_user_id
             if not target_user_id:
-                logger.warning("No authorized user ID configured for notifications")
-                return False, "No authorized user configured"
+                logger.warning("No owner user ID configured for notifications")
+                return False, "No owner user configured"
 
             sanitized_message = AgentResponseHandler._sanitize_telegram_html(message)
             success, message_id = await telegram_client.send_message(
@@ -249,7 +249,7 @@ class AgentResponseHandler:
 
     @staticmethod
     async def process_user_query_response(
-        response: str, user_id: Optional[int] = None
+        response: str, conversation_id: Optional[str] = None
     ) -> Tuple[bool, str]:
         """
         Process agent response for user queries.
@@ -261,7 +261,7 @@ class AgentResponseHandler:
 
         Args:
             response: Raw agent response
-            user_id: User ID for conversation history
+            conversation_id: The conversation the response belongs to (for logging/routing)
 
         Returns:
             Tuple of (should_respond_to_user, message_content)

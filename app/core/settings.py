@@ -62,9 +62,13 @@ class Config(BaseSettings):
         default="http://localhost:8000",
         description="URL of the FastAPI app for internal communication",
     )
-    authorized_user_id: int = Field(
+    owner_user_id: int = Field(
         default=0,
-        description="Authorized Telegram user ID (only this user can use the bot)",
+        description=(
+            "Owner's Telegram user ID. The owner can always use the bot, manages the "
+            "authorized-user/group allowlist, and is the default target for system "
+            "messages that belong to no conversation (alerts, internal errors)."
+        ),
     )
     max_conversation_history: int = Field(
         default=50,

@@ -111,7 +111,7 @@ class TestAgentResponseHandler:
         """Test successful Telegram notification."""
         with patch("app.core.telegram_client.telegram_client") as mock_client:
             with patch("app.core.agent_response_handler.config") as mock_config:
-                mock_config.authorized_user_id = 12345
+                mock_config.owner_user_id = 12345
                 mock_client.send_message = AsyncMock(return_value=(True, "msg_123"))
 
                 success, result = await AgentResponseHandler.send_telegram_notification(
@@ -128,21 +128,21 @@ class TestAgentResponseHandler:
     async def test_send_telegram_notification_no_user_id(self):
         """Test Telegram notification with no authorized user."""
         with patch("app.core.agent_response_handler.config") as mock_config:
-            mock_config.authorized_user_id = None
+            mock_config.owner_user_id = None
 
             success, result = await AgentResponseHandler.send_telegram_notification(
                 "Test message"
             )
 
             assert success is False
-            assert "No authorized user configured" in result
+            assert "No owner user configured" in result
 
     @pytest.mark.asyncio
     async def test_send_telegram_notification_failure(self):
         """Test failed Telegram notification."""
         with patch("app.core.telegram_client.telegram_client") as mock_client:
             with patch("app.core.agent_response_handler.config") as mock_config:
-                mock_config.authorized_user_id = 12345
+                mock_config.owner_user_id = 12345
                 mock_client.send_message = AsyncMock(return_value=(False, None))
 
                 success, result = await AgentResponseHandler.send_telegram_notification(

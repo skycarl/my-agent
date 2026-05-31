@@ -172,7 +172,11 @@ class TaskManager:
             return False, {"error": "No notification configuration provided"}
 
         try:
-            target_user_id = config.authorized_user_id
+            target_user_id = (
+                int(task.conversation_id)
+                if task.conversation_id
+                else config.owner_user_id
+            )
             success, message_id = await telegram_client.send_message(
                 user_id=target_user_id,
                 message=task.notification.message,
@@ -288,7 +292,11 @@ class TaskManager:
         """Notify the user of a task error via the internal send_telegram_message endpoint."""
         try:
             message_text = f"❌ Task '{task.name}' failed:\n\n{error_message}"
-            target_user_id = config.authorized_user_id
+            target_user_id = (
+                int(task.conversation_id)
+                if task.conversation_id
+                else config.owner_user_id
+            )
             telegram_request = TelegramMessageRequest(
                 user_id=target_user_id, message=message_text
             )

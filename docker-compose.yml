@@ -31,7 +31,10 @@ services:
     restart: always
     networks:
       - app-network
+    volumes:
+      - .:/app/workspace
     environment:
+      - STORAGE_PATH=/app/workspace/storage
       - TERM=xterm-256color
       - FORCE_COLOR=1
       - GIT_COMMIT=${GIT_COMMIT:-}

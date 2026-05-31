@@ -8,6 +8,30 @@ from unittest.mock import Mock, AsyncMock, patch
 from telegram_bot.bot import TelegramMessage, TelegramBot
 
 
+def make_update(
+    user_id=123,
+    chat_id=123,
+    chat_type="private",
+    is_bot=False,
+    username="testuser",
+    text=None,
+):
+    """Build a mock Update with both message.* and effective_* populated."""
+    update = Mock()
+    update.message.reply_text = AsyncMock()
+    update.message.from_user.id = user_id
+    update.message.from_user.username = username
+    update.message.chat_id = chat_id
+    if text is not None:
+        update.message.text = text
+    update.effective_message = update.message
+    update.effective_user.id = user_id
+    update.effective_user.is_bot = is_bot
+    update.effective_chat.id = chat_id
+    update.effective_chat.type = chat_type
+    return update
+
+
 class TestTelegramMessage:
     """Test TelegramMessage pydantic model."""
 
@@ -49,6 +73,24 @@ class TestTelegramMessage:
 class TestTelegramBot:
     """Test TelegramBot class."""
 
+    @pytest.fixture(autouse=True)
+    def _allowlist(self):
+        """Treat user 123 as authorized for all bot tests."""
+        with patch(
+            "telegram_bot.bot.access_control.is_authorized",
+            side_effect=lambda user_id, chat_id, chat_type: user_id == 123,
+        ):
+            yield
+
+    @staticmethod
+    def _base_config(mock_config):
+        mock_config.telegram_bot_token = "test_token"
+        mock_config.app_url = "http://localhost:8000"
+        mock_config.x_token = "test_x_token"
+        mock_config.max_conversation_history = 10
+        mock_config.owner_user_id = 123
+        mock_config.default_model = "gpt-5"
+
     def test_bot_initialization_without_token(self):
         """Test bot initialization fails without token."""
         with patch("telegram_bot.bot.config") as mock_config:
@@ -60,36 +102,23 @@ class TestTelegramBot:
     def test_bot_initialization_with_token(self):
         """Test bot initialization with token."""
         with patch("telegram_bot.bot.config") as mock_config:
-            mock_config.telegram_bot_token = "test_token"
-            mock_config.app_url = "http://localhost:8000"
-            mock_config.x_token = "test_x_token"
-            mock_config.max_conversation_history = 10
-            mock_config.authorized_user_id = 123
+            self._base_config(mock_config)
 
             bot = TelegramBot()
             assert bot.token == "test_token"
             assert bot.app_url == "http://localhost:8000"
             assert bot.x_token == "test_x_token"
             assert bot.max_conversation_history == 10
-            assert bot.authorized_user_id == 123
+            assert bot.owner_user_id == 123
 
     @pytest.mark.asyncio
     async def test_start_command(self):
         """Test /start command handler."""
         with patch("telegram_bot.bot.config") as mock_config:
-            mock_config.telegram_bot_token = "test_token"
-            mock_config.app_url = "http://localhost:8000"
-            mock_config.x_token = "test_x_token"
-            mock_config.max_conversation_history = 10
-            mock_config.authorized_user_id = 123
+            self._base_config(mock_config)
 
             bot = TelegramBot()
-
-            # Mock update and context
-            mock_update = Mock()
-            mock_update.message.reply_text = AsyncMock()
-            mock_update.message.from_user.id = 123  # Set authorized user ID
-            mock_update.message.from_user.username = "testuser"
+            mock_update = make_update()
             mock_context = Mock()
 
             await bot.start_command(mock_update, mock_context)
@@ -102,19 +131,10 @@ class TestTelegramBot:
     async def test_help_command(self):
         """Test /help command handler."""
         with patch("telegram_bot.bot.config") as mock_config:
-            mock_config.telegram_bot_token = "test_token"
-            mock_config.app_url = "http://localhost:8000"
-            mock_config.x_token = "test_x_token"
-            mock_config.max_conversation_history = 10
-            mock_config.authorized_user_id = 123
+            self._base_config(mock_config)
 
             bot = TelegramBot()
-
-            # Mock update and context
-            mock_update = Mock()
-            mock_update.message.reply_text = AsyncMock()
-            mock_update.message.from_user.id = 123  # Set authorized user ID
-            mock_update.message.from_user.username = "testuser"
+            mock_update = make_update()
             mock_context = Mock()
 
             await bot.help_command(mock_update, mock_context)
@@ -127,11 +147,7 @@ class TestTelegramBot:
     async def test_send_message_to_backend_success(self):
         """Test successful message sending to backend."""
         with patch("telegram_bot.bot.config") as mock_config:
-            mock_config.telegram_bot_token = "test_token"
-            mock_config.app_url = "http://localhost:8000"
-            mock_config.x_token = "test_x_token"
-            mock_config.max_conversation_history = 10
-            mock_config.authorized_user_id = 123
+            self._base_config(mock_config)
 
             bot = TelegramBot()
 
@@ -144,25 +160,23 @@ class TestTelegramBot:
             }
 
             with patch("httpx.AsyncClient") as mock_client:
-                mock_client.return_value.__aenter__.return_value.post = AsyncMock(
-                    return_value=mock_response
-                )
+                mock_post = AsyncMock(return_value=mock_response)
+                mock_client.return_value.__aenter__.return_value.post = mock_post
 
                 # Should not raise any exceptions (fire-and-forget)
-                await bot.send_message_to_backend("Hello")
+                await bot.send_message_to_backend("Hello", conversation_id="123")
 
-                # Verify the API call was made
-                mock_client.return_value.__aenter__.return_value.post.assert_called_once()
+                # Verify the API call was made and carried the conversation_id
+                mock_post.assert_called_once()
+                sent = mock_post.call_args.kwargs["json"]
+                assert sent["conversation_id"] == "123"
+                assert sent["input"] == "Hello"
 
     @pytest.mark.asyncio
     async def test_send_message_to_backend_api_error(self):
         """Test backend API error handling (should not raise exceptions)."""
         with patch("telegram_bot.bot.config") as mock_config:
-            mock_config.telegram_bot_token = "test_token"
-            mock_config.app_url = "http://localhost:8000"
-            mock_config.x_token = "test_x_token"
-            mock_config.max_conversation_history = 10
-            mock_config.authorized_user_id = 123
+            self._base_config(mock_config)
 
             bot = TelegramBot()
 
@@ -177,22 +191,16 @@ class TestTelegramBot:
                 )
 
                 # Should not raise exceptions even on error (fire-and-forget)
-                await bot.send_message_to_backend("Hello")
+                await bot.send_message_to_backend("Hello", conversation_id="123")
 
                 # Verify the API call was made
                 mock_client.return_value.__aenter__.return_value.post.assert_called_once()
-
-    # Conversation history management moved to backend - these tests are no longer applicable
 
     @pytest.mark.asyncio
     async def test_clear_command(self):
         """Test /clear command handler."""
         with patch("telegram_bot.bot.config") as mock_config:
-            mock_config.telegram_bot_token = "test_token"
-            mock_config.app_url = "http://localhost:8000"
-            mock_config.x_token = "test_x_token"
-            mock_config.max_conversation_history = 10
-            mock_config.authorized_user_id = 123
+            self._base_config(mock_config)
 
             bot = TelegramBot()
 
@@ -202,21 +210,17 @@ class TestTelegramBot:
             mock_response.json.return_value = {"success": True}
 
             with patch("httpx.AsyncClient") as mock_client:
-                mock_client.return_value.__aenter__.return_value.post = AsyncMock(
-                    return_value=mock_response
-                )
+                mock_post = AsyncMock(return_value=mock_response)
+                mock_client.return_value.__aenter__.return_value.post = mock_post
 
-                # Mock update and context
-                mock_update = Mock()
-                mock_update.message.reply_text = AsyncMock()
-                mock_update.message.from_user.id = 123
-                mock_update.message.from_user.username = "testuser"
+                mock_update = make_update(chat_id=456)
                 mock_context = Mock()
 
                 await bot.clear_command(mock_update, mock_context)
 
-                # Verify backend API was called
-                mock_client.return_value.__aenter__.return_value.post.assert_called_once()
+                # Verify backend API was called with the conversation_id
+                mock_post.assert_called_once()
+                assert mock_post.call_args.kwargs["json"] == {"conversation_id": "456"}
 
                 # Verify success reply was sent
                 mock_update.message.reply_text.assert_called_once_with(
@@ -227,12 +231,7 @@ class TestTelegramBot:
     async def test_set_model_command(self):
         """Test /model command shows model selection interface."""
         with patch("telegram_bot.bot.config") as mock_config:
-            mock_config.telegram_bot_token = "test_token"
-            mock_config.app_url = "http://localhost:8000"
-            mock_config.x_token = "test_x_token"
-            mock_config.max_conversation_history = 10
-            mock_config.authorized_user_id = 123
-            mock_config.default_model = "gpt-5"
+            self._base_config(mock_config)
 
             # Mock API response for available models
             mock_response = Mock()
@@ -249,13 +248,7 @@ class TestTelegramBot:
 
                 bot = TelegramBot()
 
-                # Mock update and context
-                mock_update = Mock()
-                mock_update.message.reply_text = AsyncMock()
-                mock_update.message.from_user.id = 123
-                mock_update.message.from_user.username = "testuser"
-                mock_update.message.text = "/model"
-
+                mock_update = make_update(text="/model")
                 mock_context = Mock()
                 mock_context.args = []
 
@@ -272,12 +265,7 @@ class TestTelegramBot:
     async def test_set_model_command_with_api_failure(self):
         """Test /model command when API fails to return models."""
         with patch("telegram_bot.bot.config") as mock_config:
-            mock_config.telegram_bot_token = "test_token"
-            mock_config.app_url = "http://localhost:8000"
-            mock_config.x_token = "test_x_token"
-            mock_config.max_conversation_history = 10
-            mock_config.authorized_user_id = 123
-            mock_config.default_model = "gpt-5"
+            self._base_config(mock_config)
 
             bot = TelegramBot()
 
@@ -290,13 +278,7 @@ class TestTelegramBot:
                     return_value=mock_response
                 )
 
-                # Mock update and context
-                mock_update = Mock()
-                mock_update.message.reply_text = AsyncMock()
-                mock_update.message.from_user.id = 123
-                mock_update.message.from_user.username = "testuser"
-                mock_update.message.text = "/model"
-
+                mock_update = make_update(text="/model")
                 mock_context = Mock()
                 mock_context.args = []
 
@@ -312,11 +294,7 @@ class TestTelegramBot:
     async def test_get_available_models_success(self):
         """Test successful API call to get available models."""
         with patch("telegram_bot.bot.config") as mock_config:
-            mock_config.telegram_bot_token = "test_token"
-            mock_config.app_url = "http://localhost:8000"
-            mock_config.x_token = "test_x_token"
-            mock_config.max_conversation_history = 10
-            mock_config.authorized_user_id = 123
+            self._base_config(mock_config)
 
             bot = TelegramBot()
 
@@ -340,11 +318,7 @@ class TestTelegramBot:
     async def test_get_available_models_failure(self):
         """Test API call failure when getting available models."""
         with patch("telegram_bot.bot.config") as mock_config:
-            mock_config.telegram_bot_token = "test_token"
-            mock_config.app_url = "http://localhost:8000"
-            mock_config.x_token = "test_x_token"
-            mock_config.max_conversation_history = 10
-            mock_config.authorized_user_id = 123
+            self._base_config(mock_config)
 
             bot = TelegramBot()
 
@@ -364,20 +338,13 @@ class TestTelegramBot:
     async def test_version_command_with_env_vars(self):
         """Test /version command when git info is set via config."""
         with patch("telegram_bot.bot.config") as mock_config:
-            mock_config.telegram_bot_token = "test_token"
-            mock_config.app_url = "http://localhost:8000"
-            mock_config.x_token = "test_x_token"
-            mock_config.max_conversation_history = 10
-            mock_config.authorized_user_id = 123
+            self._base_config(mock_config)
             mock_config.git_commit = "abc1234567890"
             mock_config.git_commit_message = "feat: add cool feature"
 
             bot = TelegramBot()
 
-            mock_update = Mock()
-            mock_update.message.reply_text = AsyncMock()
-            mock_update.message.from_user.id = 123
-            mock_update.message.from_user.username = "testuser"
+            mock_update = make_update()
             mock_context = Mock()
 
             with patch("telegram_bot.bot.pkg_version", return_value="0.10.1"):
@@ -393,20 +360,13 @@ class TestTelegramBot:
     async def test_version_command_falls_back_to_git(self):
         """Test /version command falls back to git subprocess when env vars are empty."""
         with patch("telegram_bot.bot.config") as mock_config:
-            mock_config.telegram_bot_token = "test_token"
-            mock_config.app_url = "http://localhost:8000"
-            mock_config.x_token = "test_x_token"
-            mock_config.max_conversation_history = 10
-            mock_config.authorized_user_id = 123
+            self._base_config(mock_config)
             mock_config.git_commit = ""
             mock_config.git_commit_message = ""
 
             bot = TelegramBot()
 
-            mock_update = Mock()
-            mock_update.message.reply_text = AsyncMock()
-            mock_update.message.from_user.id = 123
-            mock_update.message.from_user.username = "testuser"
+            mock_update = make_update()
             mock_context = Mock()
 
             with (
@@ -427,18 +387,11 @@ class TestTelegramBot:
     async def test_version_command_unauthorized(self):
         """Test /version command rejects unauthorized users."""
         with patch("telegram_bot.bot.config") as mock_config:
-            mock_config.telegram_bot_token = "test_token"
-            mock_config.app_url = "http://localhost:8000"
-            mock_config.x_token = "test_x_token"
-            mock_config.max_conversation_history = 10
-            mock_config.authorized_user_id = 123
+            self._base_config(mock_config)
 
             bot = TelegramBot()
 
-            mock_update = Mock()
-            mock_update.message.reply_text = AsyncMock()
-            mock_update.message.from_user.id = 999  # Unauthorized
-            mock_update.message.from_user.username = "hacker"
+            mock_update = make_update(user_id=999, username="hacker")
             mock_context = Mock()
 
             await bot.version_command(mock_update, mock_context)

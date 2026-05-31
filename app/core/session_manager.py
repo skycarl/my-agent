@@ -48,33 +48,47 @@ class SafeSQLiteSession(SQLiteSession):
         return sanitized
 
 
-_session: SafeSQLiteSession | None = None
+# One SafeSQLiteSession per conversation_id (Telegram chat_id), all sharing the
+# same SQLite file but with distinct session_ids.
+_sessions: dict[str, SafeSQLiteSession] = {}
 
 
-def get_session() -> SafeSQLiteSession:
-    """Get the global SafeSQLiteSession instance, creating it if needed."""
-    global _session
-    if _session is None:
+def get_session(conversation_id: str) -> SafeSQLiteSession:
+    """Get the SafeSQLiteSession for a conversation, creating it if needed.
+
+    Args:
+        conversation_id: The conversation key (Telegram chat_id as a string).
+    """
+    session_id = str(conversation_id)
+    session = _sessions.get(session_id)
+    if session is None:
         db_path = Path(config.storage_path) / "conversation.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        session_id = str(config.authorized_user_id)
         session_settings = SessionSettings(limit=config.max_conversation_history)
 
-        _session = SafeSQLiteSession(
+        session = SafeSQLiteSession(
             session_id=session_id,
             db_path=db_path,
             session_settings=session_settings,
         )
+        _sessions[session_id] = session
         logger.debug(
             f"Created SafeSQLiteSession (session_id={session_id}, db_path={db_path})"
         )
-    return _session
+    return session
+
+
+async def clear_session(conversation_id: str) -> None:
+    """Clear the stored history for a single conversation."""
+    session = get_session(conversation_id)
+    await session.clear_session()
 
 
 def reset_session() -> None:
-    """Close and clear the singleton session (for shutdown and testing)."""
-    global _session
-    if _session is not None:
-        _session.close()
-        logger.debug("SafeSQLiteSession closed")
-        _session = None
+    """Close and clear all cached sessions (for shutdown and testing)."""
+    global _sessions
+    for session in _sessions.values():
+        session.close()
+    if _sessions:
+        logger.debug(f"Closed {len(_sessions)} SafeSQLiteSession(s)")
+    _sessions = {}
