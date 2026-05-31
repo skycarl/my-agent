@@ -142,3 +142,7 @@ deploy-logs/
 
 environment.json
 settings.json
+
+# private agents/tools repo (separate repo: my-agent-private)
+# symlinked locally, real clone on the Pi; baked into the image by COPY .
+/my_agent_private

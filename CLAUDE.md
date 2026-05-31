@@ -45,6 +45,18 @@ Uses the `openai-agents` SDK (`from agents import Agent, Runner, function_tool`)
 - **Commute** (`commute_agent.py`) — Seattle commute info. Uses direct `@function_tool` calls to `app/agents/commute/commute_service.py`. Tools: `get_monorail_hours`, `get_current_date`, `get_recent_alerts`.
 - **Scheduler** (`scheduler_agent.py`) — Converts natural language to scheduled tasks (cron/interval/date). Writes to `storage/scheduled_tasks.json` and reloads APScheduler. Management tools in `app/agents/scheduler/manage_tools.py`.
 
+### Private Agents/Tools (separate repo)
+
+**This repo is public.** Agents/tools that are personal, sensitive, or too specific to share live in a separate **private** repo (`skycarl/my-agent-private`), imported as the `my_agent_private` package.
+
+**Where to put new code:**
+- Generic, shareable agents/tools/services → here, in the public repo.
+- Personal/sensitive/specific agents/tools → the `my-agent-private` repo.
+
+**How it's wired:** `app/agents/private_loader.py` does `import my_agent_private` and appends its `create_agents(model)` agents to the orchestrator handoffs. It no-ops if the package is absent, so the public repo always runs standalone (and CI stays green). Private agents route via their `handoff_description` — do **not** add their names to the orchestrator prompt.
+
+**Layout:** the private package is importable as `my_agent_private` at the repo root — a gitignored symlink locally (`make run`), a real nested clone on the Pi (baked into the image by `COPY .`). `deploy.sh`/`auto-deploy.sh` pull and watch both repos, so pushing to either redeploys automatically. Private code runs in this app's environment, so it can import shared helpers like `app.core.settings`.
+
 ### Key API Endpoints (`app/core/main_router.py`)
 
 - `POST /agent_response` — Main conversational endpoint. Runs Orchestrator agent, sends response to user via Telegram.

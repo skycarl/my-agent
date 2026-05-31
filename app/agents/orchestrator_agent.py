@@ -13,6 +13,7 @@ from .gardener_agent import create_gardener_agent
 from .commute_agent import create_commute_agent
 from .scheduler_agent import create_scheduler_agent
 from .workout_agent import create_workout_agent
+from .private_loader import load_private_agents
 
 
 def create_orchestrator_agent(model: str = None) -> Agent:
@@ -34,6 +35,9 @@ def create_orchestrator_agent(model: str = None) -> Agent:
     scheduler_agent = create_scheduler_agent(agent_model)
     workout_agent = create_workout_agent(agent_model)
 
+    handoffs = [gardener_agent, commute_agent, scheduler_agent, workout_agent]
+    handoffs += load_private_agents(agent_model)
+
     orchestrator = Agent(
         name="Orchestrator",
         instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
@@ -45,6 +49,7 @@ Routing guidelines:
 - Commute, transportation, or transit topics → Commute Assistant
 - "schedule", "remind", "repeat", cron patterns, or specific date/time → Scheduler
 - Workout, running, Strava, exercise, or training topics → Workout
+- Otherwise, if another available agent's description matches the request, hand off to it
 - General questions → Handle directly
 
 When unsure, lean towards the most relevant specialized agent.
@@ -55,7 +60,7 @@ Scheduled task messages: If a message looks like a reminder rather than a genuin
 
 Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
 """,
-        handoffs=[gardener_agent, commute_agent, scheduler_agent, workout_agent],
+        handoffs=handoffs,
         model=agent_model,
     )
 
