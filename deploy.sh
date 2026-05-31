@@ -16,6 +16,17 @@ if ! git pull origin main; then
   exit 1
 fi
 
+# Pull the private agents repo too (separate repo cloned into my_agent_private).
+# It gets baked into the image by `COPY .` in the Dockerfile.
+PRIVATE_DIR="$REPO_DIR/my_agent_private"
+if [ -d "$PRIVATE_DIR/.git" ]; then
+  echo "Pulling private agents repo"
+  if ! git -C "$PRIVATE_DIR" pull origin main; then
+    echo "Failed to pull private agents repo"
+    exit 1
+  fi
+fi
+
 echo "Building and restarting Docker containers"
 if ! docker compose -f docker-compose.yml down; then
   echo "Failed to stop Docker containers"
