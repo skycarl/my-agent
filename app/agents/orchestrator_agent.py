@@ -5,7 +5,7 @@ This agent acts as the main entry point and decides which specialized
 agent should handle each request through agent handoffs.
 """
 
-from agents import Agent
+from agents import Agent, WebSearchTool
 from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
 from loguru import logger
 from app.core.settings import config
@@ -45,7 +45,8 @@ Routing guidelines:
 - Commute, transportation, or transit topics → Commute Assistant
 - "schedule", "remind", "repeat", cron patterns, or specific date/time → Scheduler
 - Workout, running, Strava, exercise, or training topics → Workout
-- General questions → Handle directly
+- Generic questions needing up-to-date or external info (current events, weather, general facts, looking something up online) → use the web_search tool and answer directly
+- Other general questions → Handle directly
 
 When unsure, lean towards the most relevant specialized agent.
 
@@ -56,6 +57,7 @@ Scheduled task messages: If a message looks like a reminder rather than a genuin
 Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
 """,
         handoffs=[gardener_agent, commute_agent, scheduler_agent, workout_agent],
+        tools=[WebSearchTool()],
         model=agent_model,
     )
 
