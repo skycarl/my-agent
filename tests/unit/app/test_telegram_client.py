@@ -1,5 +1,3 @@
-import pytest
-
 from app.core.telegram_client import TelegramClient, markdown_to_telegram_html
 
 
@@ -65,6 +63,28 @@ class TestMarkdownToTelegramHtml:
         assert "<b>ce874964</b>" in result
         assert "**" not in result
         assert result.startswith("You have 1 active commute override:")
+
+    def test_markdown_link(self):
+        result = markdown_to_telegram_html("[fly.faa.gov](https://www.fly.faa.gov)")
+        assert result == '<a href="https://www.fly.faa.gov">fly.faa.gov</a>'
+
+    def test_markdown_link_escapes_ampersand_in_url(self):
+        """URL query params with & must be escaped for Telegram's HTML href."""
+        result = markdown_to_telegram_html(
+            "[fly.faa.gov](https://www.fly.faa.gov/fly?ARPT=SEA&p=1)"
+        )
+        assert (
+            result == '<a href="https://www.fly.faa.gov/fly?ARPT=SEA&amp;p=1">'
+            "fly.faa.gov</a>"
+        )
+        assert "[" not in result and "(" not in result
+
+    def test_markdown_link_in_sentence(self):
+        result = markdown_to_telegram_html(
+            "Check ([soundtransit.org](https://www.soundtransit.org/alerts)) for more."
+        )
+        assert '<a href="https://www.soundtransit.org/alerts">soundtransit.org</a>' in result
+        assert "](" not in result
 
     def test_ampersand_in_text(self):
         assert "&amp;" in markdown_to_telegram_html("A & B")

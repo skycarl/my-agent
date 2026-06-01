@@ -35,6 +35,16 @@ def markdown_to_telegram_html(text: str) -> str:
     # Inline code (`code`)
     text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
 
+    # Markdown links [text](url) → <a href="url">text</a> so Telegram renders a
+    # single tappable label instead of leaving the raw [text](url) to be
+    # auto-linked as two separate ugly links. URLs were already HTML-escaped
+    # above, which is what Telegram wants for href values (e.g. & → &amp;).
+    text = re.sub(
+        r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
+        r'<a href="\2">\1</a>',
+        text,
+    )
+
     # Bullet list markers (- item or * item at start of line) → bullet character
     # Must run before italic conversion so "* item" isn't treated as italic
     text = re.sub(r"^[-*] ", "• ", text, flags=re.MULTILINE)
@@ -152,7 +162,13 @@ class TelegramClient:
 
             async with httpx.AsyncClient() as client:
                 for i, chunk in enumerate(chunks):
-                    payload = {"chat_id": user_id, "text": chunk}
+                    payload = {
+                        "chat_id": user_id,
+                        "text": chunk,
+                        # Suppress the large link-preview card Telegram generates
+                        # from the first URL in the message.
+                        "disable_web_page_preview": True,
+                    }
                     if parse_mode:
                         payload["parse_mode"] = parse_mode
 
