@@ -10,6 +10,7 @@ from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
 from loguru import logger
 from app.core.conversation_context import get_conversation_id
 from app.core.settings import config, get_model_settings_for_agent
+from app.agents.common_tools import get_current_date
 from app.agents.scheduler.manage_tools import (
     list_scheduled_tasks,
     delete_scheduled_task,
@@ -152,6 +153,8 @@ Schedule types:
 - interval: interval_seconds as integer (e.g., 900 for 15 min)
 - date: ISO-8601 timestamp (e.g., "2025-09-01T09:00:00")
 
+For one-time `date` schedules with relative phrasing ("tomorrow at 9am", "next Tuesday"), call get_current_date first to anchor "today", then compute the absolute timestamp.
+
 Listing and deletion:
 - list_scheduled_tasks to show existing tasks. Relay the tool output directly — do not reformat or add markdown.
 - delete_scheduled_task(name) to remove one. If ambiguous, ask for clarification.
@@ -166,6 +169,7 @@ If any required detail is missing, ask a brief clarifying question. If immediate
 Be concise and to the point. Answer the user's question directly and do not offer to continue the conversation.
 """,
         tools=[
+            get_current_date,
             schedule_task,
             list_scheduled_tasks,
             delete_scheduled_task,
