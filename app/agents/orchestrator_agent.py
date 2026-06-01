@@ -13,6 +13,7 @@ from .gardener_agent import create_gardener_agent
 from .commute_agent import create_commute_agent
 from .scheduler_agent import create_scheduler_agent
 from .workout_agent import create_workout_agent
+from .travel_alerts_agent import create_travel_alerts_agent
 from .private_loader import load_private_agents
 
 
@@ -34,8 +35,15 @@ def create_orchestrator_agent(model: str = None) -> Agent:
     commute_agent = create_commute_agent(agent_model)
     scheduler_agent = create_scheduler_agent(agent_model)
     workout_agent = create_workout_agent(agent_model)
+    travel_alerts_agent = create_travel_alerts_agent(agent_model)
 
-    handoffs = [gardener_agent, commute_agent, scheduler_agent, workout_agent]
+    handoffs = [
+        gardener_agent,
+        commute_agent,
+        scheduler_agent,
+        workout_agent,
+        travel_alerts_agent,
+    ]
     handoffs += load_private_agents(agent_model)
 
     orchestrator = Agent(
@@ -49,6 +57,7 @@ Routing guidelines:
 - Commute, transportation, or transit topics → Commute Assistant
 - "schedule", "remind", "repeat", cron patterns, or specific date/time → Scheduler
 - Workout, running, Strava, exercise, or training topics → Workout
+- Travel alerts or local news for a place (e.g. "travel alerts for Rome", "anything I should know before going to London?") → Travel Alerts
 - Otherwise, if another available agent's description matches the request, hand off to it
 - Generic questions needing up-to-date or external info (current events, weather, general facts, looking something up online) → use the web_search tool and answer directly
 - Other general questions → Handle directly
@@ -67,6 +76,6 @@ Be concise and to the point. Answer the user's question directly and do not offe
     )
 
     logger.debug(
-        f"Orchestrator agent created with model '{agent_model}' and handoffs to Gardener, Commute Assistant, Scheduler, and Workout agents"
+        f"Orchestrator agent created with model '{agent_model}' and handoffs to Gardener, Commute Assistant, Scheduler, Workout, and Travel Alerts agents"
     )
     return orchestrator

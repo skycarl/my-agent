@@ -20,8 +20,8 @@ from app.agents.commute.preferences_service import (
     add_commute_override as svc_add_commute_override,
     remove_commute_override as svc_remove_commute_override,
 )
+from app.agents.common_tools import get_current_date
 from app.core.settings import config, get_model_settings_for_agent
-from app.core.timezone_utils import now_local
 
 
 @function_tool
@@ -29,20 +29,6 @@ async def get_monorail_hours() -> str:
     """Get the current operating hours for the Seattle Monorail."""
     result = svc_get_monorail_hours()
     return str(result.model_dump())
-
-
-@function_tool
-async def get_current_date() -> str:
-    """Get the current date and time information to understand context for transportation schedules."""
-    now = now_local()
-    return str(
-        {
-            "current_date": now.strftime("%Y-%m-%d"),
-            "current_day": now.strftime("%A"),
-            "current_time": now.strftime("%H:%M"),
-            "timezone": "Pacific Time",
-        }
-    )
 
 
 @function_tool

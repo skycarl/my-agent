@@ -44,6 +44,7 @@ Uses the `openai-agents` SDK (`from agents import Agent, Runner, function_tool`)
 - **Gardener** (`gardener_agent.py`) — Garden management. Uses direct `@function_tool` calls to `app/agents/gardener/garden_service.py`. Tools: `get_plants`, `add_plant`, `get_produce_counts`, `add_produce`.
 - **Commute** (`commute_agent.py`) — Seattle commute info. Uses direct `@function_tool` calls to `app/agents/commute/commute_service.py`. Tools: `get_monorail_hours`, `get_current_date`, `get_recent_alerts`.
 - **Scheduler** (`scheduler_agent.py`) — Converts natural language to scheduled tasks (cron/interval/date). Writes to `storage/scheduled_tasks.json` and reloads APScheduler. Management tools in `app/agents/scheduler/manage_tools.py`.
+- **Travel Alerts** (`travel_alerts_agent.py`) — Surfaces travel-relevant alerts/local news for any locale (logistics, weather, safety, planning) using the hosted `WebSearchTool`. Query-driven, e.g. "travel alerts for Rome". Tools: `get_current_date`, `WebSearchTool`.
 
 ### Private Agents/Tools (separate repo)
 

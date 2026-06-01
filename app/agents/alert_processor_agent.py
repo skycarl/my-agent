@@ -15,8 +15,8 @@ from pydantic import BaseModel
 from app.agents.commute.commute_service import (
     get_recent_alerts as svc_get_recent_alerts,
 )
+from app.agents.common_tools import get_current_date
 from app.core.settings import config, get_model_settings_for_agent
-from app.core.timezone_utils import now_local
 
 
 class AlertDecision(BaseModel):
@@ -24,20 +24,6 @@ class AlertDecision(BaseModel):
     notify_user: bool
     message_content: str
     resolves_alert_id: Optional[str] = None
-
-
-@function_tool
-async def get_current_date() -> str:
-    """Get the current date and time information to understand context for transportation schedules."""
-    now = now_local()
-    return str(
-        {
-            "current_date": now.strftime("%Y-%m-%d"),
-            "current_day": now.strftime("%A"),
-            "current_time": now.strftime("%H:%M"),
-            "timezone": "Pacific Time",
-        }
-    )
 
 
 @function_tool

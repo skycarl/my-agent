@@ -15,6 +15,7 @@ from app.agents.commute_agent import create_commute_agent
 from app.agents.orchestrator_agent import create_orchestrator_agent
 from app.agents.scheduler_agent import create_scheduler_agent
 from app.agents.workout_agent import create_workout_agent
+from app.agents.travel_alerts_agent import create_travel_alerts_agent
 
 
 class TestAgentConfiguration:
@@ -42,7 +43,17 @@ class TestAgentConfiguration:
         """Test that Orchestrator agent is properly configured."""
         agent = create_orchestrator_agent()
         assert agent.name == "Orchestrator"
-        assert len(agent.handoffs) == 4
+        # The public agents are always present; private agents may add more
+        # when the optional my_agent_private package is installed.
+        public_handoffs = {
+            "Gardener",
+            "Commute Assistant",
+            "Scheduler",
+            "Workout",
+            "Travel Alerts",
+        }
+        handoff_names = {a.name for a in agent.handoffs}
+        assert public_handoffs <= handoff_names
         assert agent.model is not None
         assert agent.instructions is not None
         assert "orchestrator" in agent.instructions.lower()
@@ -59,10 +70,10 @@ class TestAgentConfiguration:
         assert commute.tools is not None
         assert len(commute.tools) == 8
 
-        # Test that handoffs exist
+        # Test that handoffs exist (at least the public specialized agents)
         orchestrator = create_orchestrator_agent()
         assert orchestrator.handoffs is not None
-        assert len(orchestrator.handoffs) == 4
+        assert len(orchestrator.handoffs) >= 5
 
 
 class TestAgentFactoryFunctions:
@@ -93,7 +104,7 @@ class TestAgentFactoryFunctions:
 
         assert agent.name == "Orchestrator"
         assert agent.model == custom_model
-        assert len(agent.handoffs) == 4
+        assert len(agent.handoffs) >= 5
 
         # Verify that handoff agents also use the same model
         for handoff_agent in agent.handoffs:
@@ -368,3 +379,22 @@ class TestWorkoutAgentConfiguration:
         agent = create_workout_agent("gpt-5-mini")
         assert agent.model == "gpt-5-mini"
         assert len(agent.tools) == 4
+
+
+class TestTravelAlertsAgentConfiguration:
+    """Test travel alerts agent configuration."""
+
+    def test_travel_alerts_agent_configuration(self):
+        """Test that Travel Alerts agent is properly configured."""
+        agent = create_travel_alerts_agent()
+        assert agent.name == "Travel Alerts"
+        # get_current_date tool plus the hosted WebSearchTool
+        assert len(agent.tools) == 2
+        assert agent.model is not None
+        assert "travel" in agent.instructions.lower()
+
+    def test_create_travel_alerts_agent_with_custom_model(self):
+        """Test that create_travel_alerts_agent creates agent with specified model."""
+        agent = create_travel_alerts_agent("gpt-5-mini")
+        assert agent.model == "gpt-5-mini"
+        assert len(agent.tools) == 2
