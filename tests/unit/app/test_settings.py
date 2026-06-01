@@ -52,6 +52,7 @@ def test_config_default_agent_reasoning_effort():
         "commute": "medium",
         "scheduler": "medium",
         "alert_processor": "medium",
+        "travel_alerts": "high",
     }
 
 
