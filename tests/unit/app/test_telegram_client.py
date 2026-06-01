@@ -64,6 +64,23 @@ class TestMarkdownToTelegramHtml:
         assert "**" not in result
         assert result.startswith("You have 1 active commute override:")
 
+    def test_heading(self):
+        assert markdown_to_telegram_html("## Logistics") == "<b>Logistics</b>"
+
+    def test_heading_levels(self):
+        assert markdown_to_telegram_html("# Title") == "<b>Title</b>"
+        assert markdown_to_telegram_html("### Sub") == "<b>Sub</b>"
+
+    def test_heading_with_emoji_in_block(self):
+        text = "## ⚠️ Need to know\n- item one"
+        result = markdown_to_telegram_html(text)
+        assert result == "<b>⚠️ Need to know</b>\n• item one"
+        assert "##" not in result
+
+    def test_hash_not_a_heading_without_space(self):
+        """A bare # without a following space (e.g. a hashtag) is left alone."""
+        assert markdown_to_telegram_html("#hashtag") == "#hashtag"
+
     def test_markdown_link(self):
         result = markdown_to_telegram_html("[fly.faa.gov](https://www.fly.faa.gov)")
         assert result == '<a href="https://www.fly.faa.gov">fly.faa.gov</a>'

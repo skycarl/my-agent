@@ -45,6 +45,10 @@ def markdown_to_telegram_html(text: str) -> str:
         text,
     )
 
+    # Headings (#, ##, ... up to ######) → bold line. Telegram HTML has no
+    # heading tag, so the literal "## " would otherwise show through.
+    text = re.sub(r"^#{1,6} +(.+)$", r"<b>\1</b>", text, flags=re.MULTILINE)
+
     # Bullet list markers (- item or * item at start of line) → bullet character
     # Must run before italic conversion so "* item" isn't treated as italic
     text = re.sub(r"^[-*] ", "• ", text, flags=re.MULTILINE)
