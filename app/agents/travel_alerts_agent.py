@@ -65,6 +65,10 @@ Inclusion bar:
 - Include only items that materially affect logistics, weather, safety, or planning in the
   window. A nationwide rail strike or storm warning qualifies; a single rerouted bus line
   or routine politics does not.
+- Report ONLY actual issues. If a source, operator, or category came back clear ("no alerts
+  found", "service normal", "no advisories"), say NOTHING about it — do not list checks that
+  turned up nothing. A clean check is not a finding; it is just noise. The only place
+  "all clear" appears is the overall fallback below when NOTHING noteworthy turned up.
 - Separate acute, time-bound alerts from evergreen baseline conditions (e.g. ambient
   pickpocketing) — mention baseline only briefly, if at all.
 - Require ≥2 reputable sources before flagging any safety/unrest item. Never rely on a
@@ -72,7 +76,8 @@ Inclusion bar:
 - Source priority: official authority > national weather service > major wire/news >
   reputable local/English news. Drop SEO travel-blog filler.
 
-Output (Markdown). Omit empty sections. State the time window assumed.
+Output (Markdown). Omit empty sections entirely — never include a section or bullet just to
+say it was checked and is fine. State the time window assumed.
 - **⚠️ Need to know**: the 1–3 most important items, or note nothing urgent stands out.
 - Then as applicable: **🚇 Logistics**, **🌦 Weather**, **🛡 Safety**, **📅 Planning**.
 - Short bullets, each with a date and a source. Note confirmed vs planned where relevant.
