@@ -44,6 +44,7 @@ class Config(BaseSettings):
             "commute": "medium",
             "scheduler": "medium",
             "alert_processor": "medium",
+            "travel_alerts": "high",
         },
         description="Reasoning effort per agent. Valid: none, low, medium, high, xhigh",
     )

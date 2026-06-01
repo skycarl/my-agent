@@ -12,7 +12,7 @@ from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
 from loguru import logger
 
 from app.agents.common_tools import get_current_date
-from app.core.settings import config
+from app.core.settings import config, get_model_settings_for_agent
 
 
 def create_travel_alerts_agent(model: str = None) -> Agent:
@@ -26,10 +26,12 @@ def create_travel_alerts_agent(model: str = None) -> Agent:
         Configured Travel Alerts agent
     """
     agent_model = model or config.default_model
+    agent_model_settings = get_model_settings_for_agent("travel_alerts")
 
     travel = Agent(
         name="Travel Alerts",
         handoff_description="Surfaces travel-relevant alerts and local news for any city/country: things a traveler should know for logistics, weather, safety, or planning (transit strikes, airport disruptions, severe weather, protests, official travel advisories, major events/closures). Use for queries like 'travel alerts for Rome' or 'anything I should know before going to Paris?'.",
+        **({"model_settings": agent_model_settings} if agent_model_settings else {}),
         instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
 
 You are the Travel Alerts assistant. Given a locale (city, region, or country),
