@@ -370,7 +370,7 @@ class TestWorkoutAgentConfiguration:
         """Test that Workout agent is properly configured."""
         agent = create_workout_agent()
         assert agent.name == "Workout"
-        assert len(agent.tools) == 4
+        assert len(agent.tools) == 5
         assert agent.model is not None
         assert "workout" in agent.instructions.lower()
 
@@ -378,7 +378,7 @@ class TestWorkoutAgentConfiguration:
         """Test that create_workout_agent creates agent with specified model."""
         agent = create_workout_agent("gpt-5-mini")
         assert agent.model == "gpt-5-mini"
-        assert len(agent.tools) == 4
+        assert len(agent.tools) == 5
 
 
 class TestTravelAlertsAgentConfiguration:

@@ -110,8 +110,12 @@ async def get_latest_activity() -> dict:
     return await get_activity(activities[0]["id"])
 
 
-async def get_activities_on_date(target_date: datetime) -> dict | None:
-    """Fetch the first activity on a given date, or None if not found."""
+async def list_activities_on_date(target_date: datetime) -> list[dict]:
+    """Fetch all activity summaries on a given date, sorted earliest-first.
+
+    Returns the lightweight summary objects from Strava's list endpoint (not the
+    full detail). Use get_activity(id) to fetch full detail for a chosen one.
+    """
     start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
     end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=0)
 
@@ -130,7 +134,5 @@ async def get_activities_on_date(target_date: datetime) -> dict | None:
         response.raise_for_status()
         activities = response.json()
 
-    if not activities:
-        return None
-
-    return await get_activity(activities[0]["id"])
+    activities.sort(key=lambda a: a.get("start_date", ""))
+    return activities
