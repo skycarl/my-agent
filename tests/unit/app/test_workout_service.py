@@ -417,6 +417,46 @@ class TestUpdateSection:
 
         assert "No workout file found" in result
 
+    def test_update_ambiguous_multiple_files(self, test_config, tmp_path):
+        """Two workouts on a date with no filter should refuse and list options."""
+        workout_dir = tmp_path / "workouts"
+        workout_dir.mkdir()
+        (workout_dir / "2026-03-19_afternoon-walk.md").write_text(
+            "# Afternoon Walk\n**Type:** Walk\n**Sport Type:** Walk\n\n## Summary\n"
+        )
+        (workout_dir / "2026-03-19_morning-run.md").write_text(
+            "# Morning Run\n**Type:** Run\n**Sport Type:** Run\n\n## Summary\n"
+        )
+
+        with patch("app.agents.workout.workout_service.config", test_config):
+            result = update_section("2026-03-19", "Context", "> test")
+
+        assert "Multiple workout files" in result
+        assert "Morning Run" in result
+        assert "Afternoon Walk" in result
+
+    def test_update_selects_by_type(self, test_config, tmp_path):
+        """activity_type should target the right file among several on a date."""
+        workout_dir = tmp_path / "workouts"
+        workout_dir.mkdir()
+        walk = workout_dir / "2026-03-19_afternoon-walk.md"
+        walk.write_text(
+            "# Afternoon Walk\n**Type:** Walk\n**Sport Type:** Walk\n\n## Summary\n"
+        )
+        run = workout_dir / "2026-03-19_morning-run.md"
+        run.write_text(
+            "# Morning Run\n**Type:** Run\n**Sport Type:** Run\n\n## Summary\n"
+        )
+
+        with patch("app.agents.workout.workout_service.config", test_config):
+            result = update_section(
+                "2026-03-19", "Context", "> Felt good", activity_type="run"
+            )
+
+        assert "morning-run" in result
+        assert "Felt good" in run.read_text()
+        assert "Felt good" not in walk.read_text()
+
 
 class TestGetWorkoutSummary:
     def test_get_summary(self, test_config, tmp_path):
@@ -437,6 +477,23 @@ class TestGetWorkoutSummary:
             result = get_workout_summary("2026-03-19")
 
         assert "No workout file found" in result
+
+    def test_get_summary_selects_by_type(self, test_config, tmp_path):
+        """activity_type should return the matching file among several on a date."""
+        workout_dir = tmp_path / "workouts"
+        workout_dir.mkdir()
+        (workout_dir / "2026-03-19_afternoon-walk.md").write_text(
+            "# Afternoon Walk\n**Type:** Walk\n**Sport Type:** Walk\n\n## Summary\n"
+        )
+        run_content = (
+            "# Morning Run\n**Type:** Run\n**Sport Type:** Run\n\n## Summary\n"
+        )
+        (workout_dir / "2026-03-19_morning-run.md").write_text(run_content)
+
+        with patch("app.agents.workout.workout_service.config", test_config):
+            result = get_workout_summary("2026-03-19", activity_type="run")
+
+        assert result == run_content
 
 
 class TestFetchLatestWorkout:

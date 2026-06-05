@@ -50,7 +50,9 @@ async def list_workouts_on_date(date: str) -> str:
 
 
 @function_tool
-async def update_workout_section(date: str, section: str, content: str) -> str:
+async def update_workout_section(
+    date: str, section: str, content: str, activity_type: str | None = None
+) -> str:
     """
     Update or add a section in an existing workout markdown file. Use this for subjective notes, fueling, COROS extras, and context.
 
@@ -58,19 +60,21 @@ async def update_workout_section(date: str, section: str, content: str) -> str:
         date: The date of the workout. Supports 'today', 'yesterday', 'YYYY-MM-DD', or 'Month Day'.
         section: The section name to update. One of: 'Subjective Notes', 'Fueling', 'COROS Extras', 'Context'.
         content: The full content for that section in markdown format.
+        activity_type: Optional filter to pick among multiple saved workouts on the same date, e.g. 'run', 'walk', 'ride'. Omit when there is only one. If the choice is ambiguous, the available files are listed back so you can retry with a more specific filter.
     """
-    return svc_update_section(date, section, content)
+    return svc_update_section(date, section, content, activity_type)
 
 
 @function_tool
-async def get_workout_summary(date: str) -> str:
+async def get_workout_summary(date: str, activity_type: str | None = None) -> str:
     """
     Get the full markdown content of a workout file for a given date. Returns the complete file for copy/paste.
 
     Args:
         date: The date of the workout. Supports 'today', 'yesterday', 'YYYY-MM-DD', or 'Month Day'.
+        activity_type: Optional filter to pick among multiple saved workouts on the same date, e.g. 'run', 'walk', 'ride'. Omit when there is only one.
     """
-    return svc_get_workout_summary(date)
+    return svc_get_workout_summary(date, activity_type)
 
 
 def create_workout_agent(model: str = None) -> Agent:
@@ -99,6 +103,7 @@ Tool usage:
 - Use `get_workout_by_date` ONLY when the user wants to fetch/import a workout from Strava for a specific date. If the user refers to a particular activity (e.g., "the morning run", "my walk") and there may be more than one activity that day, pass `activity_type` (e.g. 'run', 'walk', 'ride') to select the right one. If a fetch reports multiple activities, retry with `activity_type`.
 - Use `list_workouts_on_date` when the user has multiple activities in a day and you need to see the options (names, types, times) before fetching a specific one.
 - Use `get_workout_summary` when the user wants to SEE or RETRIEVE an existing workout (e.g., "send me today's workout", "show me my workout", "give me the markdown"). NEVER re-fetch from Strava when the user just wants to see what's already saved.
+- For both `get_workout_summary` and `update_workout_section`: when the user refers to a specific activity (e.g., "the morning run") and the date may have more than one saved workout, pass `activity_type` (e.g. 'run', 'walk', 'ride') so the notes/summary target the right file. If a call reports multiple matching files, retry with `activity_type`.
 - Use `update_workout_section` when the user wants to add subjective notes, fueling data, COROS extras, or context. Format the content as markdown matching the template structure:
   - For "Subjective Notes": write the user's notes verbatim as a blockquote. Do NOT split them into pre/during/post or any other sections—preserve their wording and order as given.
   - For "Fueling": use a markdown table with columns Timing, Item, Carbs, Caffeine, Sodium, Water.
