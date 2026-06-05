@@ -109,13 +109,75 @@ def _parse_date(date_str: str) -> datetime:
     )
 
 
-def _find_workout_file(date_str: str) -> Path | None:
-    """Find a workout markdown file matching the given date."""
+def _find_workout_files(date_str: str) -> list[Path]:
+    """Find all workout markdown files matching the given date, sorted by name."""
     target_date = _parse_date(date_str)
     date_prefix = target_date.strftime("%Y-%m-%d")
     pattern = str(Path(config.workouts_path) / f"{date_prefix}_*.md")
-    matches = glob_module.glob(pattern)
-    return Path(matches[0]) if matches else None
+    return sorted(Path(p) for p in glob_module.glob(pattern))
+
+
+def _parse_workout_header(path: Path) -> dict:
+    """Extract minimal identity fields (name, type, sport_type) from a saved file."""
+    activity: dict = {}
+    for line in path.read_text().splitlines():
+        if line.startswith("## "):
+            break  # identity fields live above the first section
+        if line.startswith("# "):
+            activity.setdefault("name", line[2:].strip())
+        elif line.startswith("**Type:**"):
+            activity["type"] = line.split("**Type:**", 1)[1].strip()
+        elif line.startswith("**Sport Type:**"):
+            activity["sport_type"] = line.split("**Sport Type:**", 1)[1].strip()
+    return activity
+
+
+def _format_workout_file_options(files: list[Path]) -> str:
+    """Render a numbered list of saved workout files with name and type."""
+    lines = []
+    for i, path in enumerate(files, 1):
+        header = _parse_workout_header(path)
+        name = header.get("name", path.stem)
+        sport = header.get("sport_type") or header.get("type") or "Unknown"
+        lines.append(f"{i}. {name} ({sport}) — {path.name}")
+    return "\n".join(lines)
+
+
+def _resolve_workout_file(
+    date_str: str, activity_type: str | None
+) -> tuple[Path | None, str | None]:
+    """Resolve a single saved workout file for a date, disambiguating by type.
+
+    Returns (path, None) on success or (None, message) when the file is missing
+    or the choice is ambiguous.
+    """
+    target_date = _parse_date(date_str)
+    files = _find_workout_files(date_str)
+
+    if not files:
+        return None, (
+            f"No workout file found for {target_date.strftime('%B %d, %Y')}. "
+            "Fetch the workout first."
+        )
+
+    candidates = files
+    if activity_type:
+        candidates = _select_matching(files, _parse_workout_header, activity_type)
+        if not candidates:
+            return None, (
+                f"No '{activity_type}' workout file found for "
+                f"{target_date.strftime('%B %d, %Y')}. Saved workouts that day:\n"
+                f"{_format_workout_file_options(files)}"
+            )
+
+    if len(candidates) > 1:
+        return None, (
+            f"Multiple workout files found for {target_date.strftime('%B %d, %Y')}. "
+            f"Specify which one (e.g. by type or name):\n"
+            f"{_format_workout_file_options(candidates)}"
+        )
+
+    return candidates[0], None
 
 
 def _get_activity_type(activity: dict) -> str:
@@ -135,15 +197,38 @@ def _guess_workout_category(activity: dict) -> str:
 
 
 def _activity_matches_type(activity: dict, activity_type: str) -> bool:
-    """Check whether an activity matches a user-specified type filter.
+    """Check whether an activity's Strava type matches a type word.
 
     Matches the broad category ('run'/'ride') or the raw Strava sport/type string,
-    so 'run', 'trail run', 'walk', or 'weighttraining' all resolve sensibly.
+    so 'run', 'walk', or 'weighttraining' resolve sensibly.
     """
     wanted = activity_type.strip().lower()
     category = _get_activity_type(activity)  # 'run', 'ride', or 'other'
     raw = (activity.get("sport_type") or activity.get("type") or "").lower()
-    return wanted == category or bool(raw) and (wanted in raw or raw in wanted)
+    return wanted == category or (bool(raw) and wanted in raw)
+
+
+def _select_matching(items, identity_of, descriptor: str):
+    """Select items matching a descriptor, tiered: exact name, name substring, then type.
+
+    `identity_of(item)` returns a dict with 'name'/'type'/'sport_type'. Tiering lets
+    'run' pick any run, while 'morning run' or 'morning' picks the specifically-named
+    activity even when several share a type (Strava names encode time of day).
+    """
+    wanted = descriptor.strip().lower()
+
+    def name_of(item) -> str:
+        return (identity_of(item).get("name") or "").lower()
+
+    exact = [i for i in items if name_of(i) == wanted]
+    if exact:
+        return exact
+
+    by_name = [i for i in items if wanted and wanted in name_of(i)]
+    if by_name:
+        return by_name
+
+    return [i for i in items if _activity_matches_type(identity_of(i), wanted)]
 
 
 def _format_activity_options(activities: list[dict]) -> str:
@@ -746,9 +831,21 @@ def _build_summary_message(activity: dict, file_path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def fetch_latest_workout() -> str:
-    """Fetch the latest workout from Strava and save as markdown."""
-    activity = await strava_client.get_latest_activity()
+async def fetch_latest_workout(activity_type: str | None = None) -> str:
+    """Fetch the latest workout from Strava and save as markdown.
+
+    With `activity_type` (e.g. 'run', 'walk', 'ride'), fetch the most recent activity
+    of that kind rather than the single most recent activity overall.
+    """
+    if activity_type:
+        recent = await strava_client.list_recent_activities()
+        matches = _select_matching(recent, lambda a: a, activity_type)
+        if not matches:
+            return f"No recent '{activity_type}' activity found on Strava."
+        activity = await strava_client.get_activity(matches[0]["id"])
+    else:
+        activity = await strava_client.get_latest_activity()
+
     zones = await strava_client.get_activity_zones(activity["id"])
     laps = await strava_client.get_activity_laps(activity["id"])
     markdown = format_workout_markdown(activity, zones=zones, laps=laps)
@@ -787,7 +884,7 @@ async def fetch_workout_by_date(date_str: str, activity_type: str | None = None)
 
     candidates = activities
     if activity_type:
-        candidates = [a for a in activities if _activity_matches_type(a, activity_type)]
+        candidates = _select_matching(activities, lambda a: a, activity_type)
         if not candidates:
             return (
                 f"No '{activity_type}' activity found on "
@@ -798,7 +895,7 @@ async def fetch_workout_by_date(date_str: str, activity_type: str | None = None)
     if len(candidates) > 1:
         return (
             f"Multiple activities found on {target_date.strftime('%B %d, %Y')}. "
-            f"Specify which one (e.g. by type or time):\n"
+            f"Specify which one by type or name (e.g. 'run' or 'morning run'):\n"
             f"{_format_activity_options(candidates)}"
         )
 
@@ -810,16 +907,18 @@ async def fetch_workout_by_date(date_str: str, activity_type: str | None = None)
     return _build_summary_message(activity, file_path)
 
 
-def update_section(date_str: str, section: str, content: str) -> str:
+def update_section(
+    date_str: str, section: str, content: str, activity_type: str | None = None
+) -> str:
     """Update or create a specific section in a workout file.
 
     Supported sections: Subjective Notes, Fueling, COROS Extras, Context.
     For Subjective Notes, content should include the pre/during/post structure.
+    When a date has multiple saved workouts, `activity_type` selects the right one.
     """
-    file_path = _find_workout_file(date_str)
+    file_path, error = _resolve_workout_file(date_str, activity_type)
     if file_path is None:
-        target_date = _parse_date(date_str)
-        return f"No workout file found for {target_date.strftime('%B %d, %Y')}. Fetch the workout first."
+        return error
 
     file_content = file_path.read_text()
     section_header = f"## {section}"
@@ -845,11 +944,13 @@ def update_section(date_str: str, section: str, content: str) -> str:
     return f"Section '{section}' updated in {file_path.name}."
 
 
-def get_workout_summary(date_str: str) -> str:
-    """Read and return the full markdown content of a workout file."""
-    file_path = _find_workout_file(date_str)
+def get_workout_summary(date_str: str, activity_type: str | None = None) -> str:
+    """Read and return the full markdown content of a workout file.
+
+    When a date has multiple saved workouts, `activity_type` selects the right one.
+    """
+    file_path, error = _resolve_workout_file(date_str, activity_type)
     if file_path is None:
-        target_date = _parse_date(date_str)
-        return f"No workout file found for {target_date.strftime('%B %d, %Y')}. Fetch the workout first."
+        return error
 
     return file_path.read_text()

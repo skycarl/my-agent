@@ -115,6 +115,37 @@ class TestGetLatestActivity:
                 await strava_client.get_latest_activity()
 
 
+class TestListRecentActivities:
+    @pytest.mark.asyncio
+    async def test_list_recent_activities_sorted_recent_first(self):
+        """Recent activities should be returned most-recent-first, no detail fetch."""
+        activities_response = MagicMock()
+        activities_response.json.return_value = [
+            {"id": 111, "type": "Run", "start_date": "2026-03-18T14:00:00Z"},
+            {"id": 222, "type": "Walk", "start_date": "2026-03-19T22:00:00Z"},
+        ]
+        activities_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get.return_value = activities_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "app.agents.workout.strava_client.httpx.AsyncClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "app.agents.workout.strava_client.get_access_token",
+                return_value="token",
+            ),
+        ):
+            result = await strava_client.list_recent_activities()
+
+        assert [a["id"] for a in result] == [222, 111]
+
+
 class TestListActivitiesOnDate:
     @pytest.mark.asyncio
     async def test_list_activities_on_date_found(self):

@@ -417,6 +417,46 @@ class TestUpdateSection:
 
         assert "No workout file found" in result
 
+    def test_update_ambiguous_multiple_files(self, test_config, tmp_path):
+        """Two workouts on a date with no filter should refuse and list options."""
+        workout_dir = tmp_path / "workouts"
+        workout_dir.mkdir()
+        (workout_dir / "2026-03-19_afternoon-walk.md").write_text(
+            "# Afternoon Walk\n**Type:** Walk\n**Sport Type:** Walk\n\n## Summary\n"
+        )
+        (workout_dir / "2026-03-19_morning-run.md").write_text(
+            "# Morning Run\n**Type:** Run\n**Sport Type:** Run\n\n## Summary\n"
+        )
+
+        with patch("app.agents.workout.workout_service.config", test_config):
+            result = update_section("2026-03-19", "Context", "> test")
+
+        assert "Multiple workout files" in result
+        assert "Morning Run" in result
+        assert "Afternoon Walk" in result
+
+    def test_update_selects_by_type(self, test_config, tmp_path):
+        """activity_type should target the right file among several on a date."""
+        workout_dir = tmp_path / "workouts"
+        workout_dir.mkdir()
+        walk = workout_dir / "2026-03-19_afternoon-walk.md"
+        walk.write_text(
+            "# Afternoon Walk\n**Type:** Walk\n**Sport Type:** Walk\n\n## Summary\n"
+        )
+        run = workout_dir / "2026-03-19_morning-run.md"
+        run.write_text(
+            "# Morning Run\n**Type:** Run\n**Sport Type:** Run\n\n## Summary\n"
+        )
+
+        with patch("app.agents.workout.workout_service.config", test_config):
+            result = update_section(
+                "2026-03-19", "Context", "> Felt good", activity_type="run"
+            )
+
+        assert "morning-run" in result
+        assert "Felt good" in run.read_text()
+        assert "Felt good" not in walk.read_text()
+
 
 class TestGetWorkoutSummary:
     def test_get_summary(self, test_config, tmp_path):
@@ -437,6 +477,23 @@ class TestGetWorkoutSummary:
             result = get_workout_summary("2026-03-19")
 
         assert "No workout file found" in result
+
+    def test_get_summary_selects_by_type(self, test_config, tmp_path):
+        """activity_type should return the matching file among several on a date."""
+        workout_dir = tmp_path / "workouts"
+        workout_dir.mkdir()
+        (workout_dir / "2026-03-19_afternoon-walk.md").write_text(
+            "# Afternoon Walk\n**Type:** Walk\n**Sport Type:** Walk\n\n## Summary\n"
+        )
+        run_content = (
+            "# Morning Run\n**Type:** Run\n**Sport Type:** Run\n\n## Summary\n"
+        )
+        (workout_dir / "2026-03-19_morning-run.md").write_text(run_content)
+
+        with patch("app.agents.workout.workout_service.config", test_config):
+            result = get_workout_summary("2026-03-19", activity_type="run")
+
+        assert result == run_content
 
 
 class TestFetchLatestWorkout:
@@ -471,6 +528,59 @@ class TestFetchLatestWorkout:
         assert len(files) == 1
         assert "2026-03-19" in files[0].name
         assert "morning-run" in files[0].name
+
+    @pytest.mark.asyncio
+    async def test_fetch_latest_workout_by_type(self, test_config, tmp_path):
+        """activity_type should grab the most recent activity of that kind."""
+        walk = {
+            **SAMPLE_RUN_ACTIVITY,
+            "id": 999,
+            "name": "Evening Walk",
+            "type": "Walk",
+            "sport_type": "Walk",
+        }
+        with (
+            patch(
+                "app.agents.workout.workout_service.strava_client.list_recent_activities",
+                new_callable=AsyncMock,
+                return_value=[walk, SAMPLE_RUN_ACTIVITY],
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity",
+                new_callable=AsyncMock,
+                return_value=SAMPLE_RUN_ACTIVITY,
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity_zones",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity_laps",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch("app.agents.workout.workout_service.config", test_config),
+        ):
+            result = await fetch_latest_workout(activity_type="run")
+
+        assert "Saved" in result
+        assert "Morning Run" in result
+
+    @pytest.mark.asyncio
+    async def test_fetch_latest_workout_by_type_no_match(self, test_config):
+        """activity_type with no recent match should report none found."""
+        with (
+            patch(
+                "app.agents.workout.workout_service.strava_client.list_recent_activities",
+                new_callable=AsyncMock,
+                return_value=[SAMPLE_RUN_ACTIVITY],
+            ),
+            patch("app.agents.workout.workout_service.config", test_config),
+        ):
+            result = await fetch_latest_workout(activity_type="ride")
+
+        assert "No recent 'ride' activity found" in result
 
 
 class TestFetchWorkoutByDate:
@@ -590,6 +700,52 @@ class TestFetchWorkoutByDate:
 
         assert "No 'ride' activity found" in result
         assert "Morning Run" in result
+
+    @pytest.mark.asyncio
+    async def test_fetch_workout_by_date_two_runs_disambiguated_by_name(
+        self, test_config, tmp_path
+    ):
+        """Two same-type activities should be selectable by name (e.g. 'morning run')."""
+        afternoon_run = {
+            **SAMPLE_RUN_ACTIVITY,
+            "id": 222,
+            "name": "Afternoon Run",
+            "start_date": "2026-03-19T21:00:00Z",
+            "start_date_local": "2026-03-19T14:00:00",
+        }
+        with (
+            patch(
+                "app.agents.workout.workout_service.strava_client.list_activities_on_date",
+                new_callable=AsyncMock,
+                return_value=[SAMPLE_RUN_ACTIVITY, afternoon_run],
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity",
+                new_callable=AsyncMock,
+                return_value=SAMPLE_RUN_ACTIVITY,
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity_zones",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity_laps",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch("app.agents.workout.workout_service.config", test_config),
+        ):
+            # 'run' alone is ambiguous between the two runs
+            ambiguous = await fetch_workout_by_date("2026-03-19", activity_type="run")
+            # 'morning run' (the activity name) resolves it
+            resolved = await fetch_workout_by_date(
+                "2026-03-19", activity_type="morning run"
+            )
+
+        assert "Multiple activities" in ambiguous
+        assert "Saved" in resolved
+        assert "Morning Run" in resolved
 
 
 class TestListWorkoutsOnDate:

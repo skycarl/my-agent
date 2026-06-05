@@ -110,6 +110,27 @@ async def get_latest_activity() -> dict:
     return await get_activity(activities[0]["id"])
 
 
+async def list_recent_activities(limit: int = 30) -> list[dict]:
+    """Fetch recent activity summaries, most recent first.
+
+    Returns the lightweight summary objects (not full detail). Use get_activity(id)
+    to fetch full detail for a chosen one.
+    """
+    headers = await _get_headers()
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{STRAVA_API_BASE}/athlete/activities",
+            headers=headers,
+            params={"per_page": limit},
+            timeout=15.0,
+        )
+        response.raise_for_status()
+        activities = response.json()
+
+    activities.sort(key=lambda a: a.get("start_date", ""), reverse=True)
+    return activities
+
+
 async def list_activities_on_date(target_date: datetime) -> list[dict]:
     """Fetch all activity summaries on a given date, sorted earliest-first.
 
