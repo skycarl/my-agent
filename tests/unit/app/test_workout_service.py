@@ -10,6 +10,7 @@ from app.agents.workout.workout_service import (
     get_workout_summary,
     fetch_latest_workout,
     fetch_workout_by_date,
+    list_workouts_on_date,
     _slugify,
     _format_duration,
     _speed_to_pace,
@@ -475,10 +476,15 @@ class TestFetchLatestWorkout:
 class TestFetchWorkoutByDate:
     @pytest.mark.asyncio
     async def test_fetch_workout_by_date(self, test_config, tmp_path):
-        """Test fetching a workout by date."""
+        """Test fetching a workout by date when there is a single activity."""
         with (
             patch(
-                "app.agents.workout.workout_service.strava_client.get_activities_on_date",
+                "app.agents.workout.workout_service.strava_client.list_activities_on_date",
+                new_callable=AsyncMock,
+                return_value=[SAMPLE_RUN_ACTIVITY],
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity",
                 new_callable=AsyncMock,
                 return_value=SAMPLE_RUN_ACTIVITY,
             ),
@@ -503,12 +509,118 @@ class TestFetchWorkoutByDate:
         """Test fetching a workout when none exists for the date."""
         with (
             patch(
-                "app.agents.workout.workout_service.strava_client.get_activities_on_date",
+                "app.agents.workout.workout_service.strava_client.list_activities_on_date",
                 new_callable=AsyncMock,
-                return_value=None,
+                return_value=[],
             ),
             patch("app.agents.workout.workout_service.config", test_config),
         ):
             result = await fetch_workout_by_date("2026-03-19")
+
+        assert "No activity found" in result
+
+    @pytest.mark.asyncio
+    async def test_fetch_workout_by_date_multiple_ambiguous(self, test_config):
+        """Multiple activities with no filter should list the options, not save."""
+        get_activity = AsyncMock()
+        with (
+            patch(
+                "app.agents.workout.workout_service.strava_client.list_activities_on_date",
+                new_callable=AsyncMock,
+                return_value=[SAMPLE_RUN_ACTIVITY, SAMPLE_STRENGTH_ACTIVITY],
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity",
+                new=get_activity,
+            ),
+            patch("app.agents.workout.workout_service.config", test_config),
+        ):
+            result = await fetch_workout_by_date("2026-03-19")
+
+        assert "Multiple activities" in result
+        assert "Morning Run" in result
+        assert "Gym Session" in result
+        get_activity.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_fetch_workout_by_date_type_filter_selects(
+        self, test_config, tmp_path
+    ):
+        """An activity_type filter should pick the matching activity among several."""
+        with (
+            patch(
+                "app.agents.workout.workout_service.strava_client.list_activities_on_date",
+                new_callable=AsyncMock,
+                return_value=[SAMPLE_RUN_ACTIVITY, SAMPLE_STRENGTH_ACTIVITY],
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity",
+                new_callable=AsyncMock,
+                return_value=SAMPLE_RUN_ACTIVITY,
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity_zones",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity_laps",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch("app.agents.workout.workout_service.config", test_config),
+        ):
+            result = await fetch_workout_by_date("2026-03-19", activity_type="run")
+
+        assert "Saved" in result
+        assert "Morning Run" in result
+
+    @pytest.mark.asyncio
+    async def test_fetch_workout_by_date_type_filter_no_match(self, test_config):
+        """A filter that matches nothing should report what is available."""
+        with (
+            patch(
+                "app.agents.workout.workout_service.strava_client.list_activities_on_date",
+                new_callable=AsyncMock,
+                return_value=[SAMPLE_RUN_ACTIVITY],
+            ),
+            patch("app.agents.workout.workout_service.config", test_config),
+        ):
+            result = await fetch_workout_by_date("2026-03-19", activity_type="ride")
+
+        assert "No 'ride' activity found" in result
+        assert "Morning Run" in result
+
+
+class TestListWorkoutsOnDate:
+    @pytest.mark.asyncio
+    async def test_list_workouts_on_date(self, test_config):
+        """Listing should enumerate every activity on the date."""
+        with (
+            patch(
+                "app.agents.workout.workout_service.strava_client.list_activities_on_date",
+                new_callable=AsyncMock,
+                return_value=[SAMPLE_RUN_ACTIVITY, SAMPLE_STRENGTH_ACTIVITY],
+            ),
+            patch("app.agents.workout.workout_service.config", test_config),
+        ):
+            result = await list_workouts_on_date("2026-03-19")
+
+        assert "Found 2 activities" in result
+        assert "1. Morning Run" in result
+        assert "2. Gym Session" in result
+
+    @pytest.mark.asyncio
+    async def test_list_workouts_on_date_none(self, test_config):
+        """Listing with no activities should report none found."""
+        with (
+            patch(
+                "app.agents.workout.workout_service.strava_client.list_activities_on_date",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch("app.agents.workout.workout_service.config", test_config),
+        ):
+            result = await list_workouts_on_date("2026-03-19")
 
         assert "No activity found" in result

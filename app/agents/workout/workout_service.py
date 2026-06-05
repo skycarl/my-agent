@@ -134,6 +134,41 @@ def _guess_workout_category(activity: dict) -> str:
     return WORKOUT_TYPE_MAP.get(wtype, "Easy")
 
 
+def _activity_matches_type(activity: dict, activity_type: str) -> bool:
+    """Check whether an activity matches a user-specified type filter.
+
+    Matches the broad category ('run'/'ride') or the raw Strava sport/type string,
+    so 'run', 'trail run', 'walk', or 'weighttraining' all resolve sensibly.
+    """
+    wanted = activity_type.strip().lower()
+    category = _get_activity_type(activity)  # 'run', 'ride', or 'other'
+    raw = (activity.get("sport_type") or activity.get("type") or "").lower()
+    return wanted == category or bool(raw) and (wanted in raw or raw in wanted)
+
+
+def _format_activity_options(activities: list[dict]) -> str:
+    """Render a numbered list of activities with name, type, time, and distance."""
+    lines = []
+    for i, activity in enumerate(activities, 1):
+        name = activity.get("name", "Workout")
+        sport = activity.get("sport_type") or activity.get("type", "Unknown")
+        details = [sport]
+
+        start = activity.get("start_date_local", "")
+        if start:
+            try:
+                details.append(datetime.fromisoformat(start).strftime("%-I:%M %p"))
+            except ValueError:
+                pass
+
+        dist_mi = activity.get("distance", 0) / METERS_PER_MILE
+        if dist_mi:
+            details.append(f"{dist_mi:.2f} mi")
+
+        lines.append(f"{i}. {name} ({', '.join(details)})")
+    return "\n".join(lines)
+
+
 def _format_elev_delta(meters: float) -> str:
     """Format elevation difference in feet with +/- sign."""
     feet = int(meters * METERS_TO_FEET)
@@ -721,14 +756,53 @@ async def fetch_latest_workout() -> str:
     return _build_summary_message(activity, file_path)
 
 
-async def fetch_workout_by_date(date_str: str) -> str:
-    """Fetch a workout from Strava for a specific date and save as markdown."""
+async def list_workouts_on_date(date_str: str) -> str:
+    """List all Strava activities on a given date without saving anything."""
     target_date = _parse_date(date_str)
-    activity = await strava_client.get_activities_on_date(target_date)
+    activities = await strava_client.list_activities_on_date(target_date)
 
-    if activity is None:
+    if not activities:
         return f"No activity found on {target_date.strftime('%B %d, %Y')}."
 
+    count = len(activities)
+    noun = "activity" if count == 1 else "activities"
+    return (
+        f"Found {count} {noun} on {target_date.strftime('%B %d, %Y')}:\n"
+        f"{_format_activity_options(activities)}"
+    )
+
+
+async def fetch_workout_by_date(date_str: str, activity_type: str | None = None) -> str:
+    """Fetch a workout from Strava for a specific date and save as markdown.
+
+    When several activities exist on the date, `activity_type` (e.g. 'run', 'walk',
+    'ride') narrows the choice. If the selection is still ambiguous, the available
+    activities are listed back so the caller can pick one.
+    """
+    target_date = _parse_date(date_str)
+    activities = await strava_client.list_activities_on_date(target_date)
+
+    if not activities:
+        return f"No activity found on {target_date.strftime('%B %d, %Y')}."
+
+    candidates = activities
+    if activity_type:
+        candidates = [a for a in activities if _activity_matches_type(a, activity_type)]
+        if not candidates:
+            return (
+                f"No '{activity_type}' activity found on "
+                f"{target_date.strftime('%B %d, %Y')}. Activities that day:\n"
+                f"{_format_activity_options(activities)}"
+            )
+
+    if len(candidates) > 1:
+        return (
+            f"Multiple activities found on {target_date.strftime('%B %d, %Y')}. "
+            f"Specify which one (e.g. by type or time):\n"
+            f"{_format_activity_options(candidates)}"
+        )
+
+    activity = await strava_client.get_activity(candidates[0]["id"])
     zones = await strava_client.get_activity_zones(activity["id"])
     laps = await strava_client.get_activity_laps(activity["id"])
     markdown = format_workout_markdown(activity, zones=zones, laps=laps)

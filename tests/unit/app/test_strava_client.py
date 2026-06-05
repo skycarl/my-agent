@@ -115,29 +115,21 @@ class TestGetLatestActivity:
                 await strava_client.get_latest_activity()
 
 
-class TestGetActivitiesOnDate:
+class TestListActivitiesOnDate:
     @pytest.mark.asyncio
-    async def test_get_activities_on_date_found(self):
-        """Test fetching activities for a specific date (returns first activity)."""
+    async def test_list_activities_on_date_found(self):
+        """Test listing all activity summaries for a date, sorted earliest-first."""
         from datetime import datetime
 
         activities_response = MagicMock()
         activities_response.json.return_value = [
-            {"id": 111, "type": "Run"},
-            {"id": 222, "type": "Ride"},
+            {"id": 222, "type": "Walk", "start_date": "2026-03-19T22:00:00Z"},
+            {"id": 111, "type": "Run", "start_date": "2026-03-19T14:00:00Z"},
         ]
         activities_response.raise_for_status = MagicMock()
 
-        detail_response = MagicMock()
-        detail_response.json.return_value = {
-            "id": 111,
-            "type": "Run",
-            "distance": 5000,
-        }
-        detail_response.raise_for_status = MagicMock()
-
         mock_client = AsyncMock()
-        mock_client.get.side_effect = [activities_response, detail_response]
+        mock_client.get.return_value = activities_response
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
@@ -151,15 +143,16 @@ class TestGetActivitiesOnDate:
                 return_value="token",
             ),
         ):
-            result = await strava_client.get_activities_on_date(
+            result = await strava_client.list_activities_on_date(
                 datetime(2026, 3, 19, tzinfo=None)
             )
 
-        assert result["id"] == 111
+        # Returns the full list, no detail fetch, sorted earliest-first
+        assert [a["id"] for a in result] == [111, 222]
 
     @pytest.mark.asyncio
-    async def test_get_activities_on_date_none(self):
-        """Test that None is returned when no activities found on date."""
+    async def test_list_activities_on_date_empty(self):
+        """Test that an empty list is returned when no activities found on date."""
         from datetime import datetime
 
         mock_response = MagicMock()
@@ -181,11 +174,11 @@ class TestGetActivitiesOnDate:
                 return_value="token",
             ),
         ):
-            result = await strava_client.get_activities_on_date(
+            result = await strava_client.list_activities_on_date(
                 datetime(2026, 3, 19, tzinfo=None)
             )
 
-        assert result is None
+        assert result == []
 
 
 class TestGetActivityZones:
