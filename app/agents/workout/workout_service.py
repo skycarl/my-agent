@@ -132,16 +132,6 @@ def _parse_workout_header(path: Path) -> dict:
     return activity
 
 
-def _workout_file_matches_type(path: Path, activity_type: str) -> bool:
-    """Check whether a saved workout file matches a type/name filter."""
-    header = _parse_workout_header(path)
-    if _activity_matches_type(header, activity_type):
-        return True
-    # Fall back to matching the activity name / filename slug (e.g. "morning run").
-    wanted = activity_type.strip().lower()
-    return wanted in header.get("name", "").lower() or wanted in path.stem.lower()
-
-
 def _format_workout_file_options(files: list[Path]) -> str:
     """Render a numbered list of saved workout files with name and type."""
     lines = []
@@ -172,7 +162,7 @@ def _resolve_workout_file(
 
     candidates = files
     if activity_type:
-        candidates = [f for f in files if _workout_file_matches_type(f, activity_type)]
+        candidates = _select_matching(files, _parse_workout_header, activity_type)
         if not candidates:
             return None, (
                 f"No '{activity_type}' workout file found for "
@@ -183,7 +173,7 @@ def _resolve_workout_file(
     if len(candidates) > 1:
         return None, (
             f"Multiple workout files found for {target_date.strftime('%B %d, %Y')}. "
-            f"Specify which one (e.g. by type):\n"
+            f"Specify which one (e.g. by type or name):\n"
             f"{_format_workout_file_options(candidates)}"
         )
 
@@ -207,15 +197,38 @@ def _guess_workout_category(activity: dict) -> str:
 
 
 def _activity_matches_type(activity: dict, activity_type: str) -> bool:
-    """Check whether an activity matches a user-specified type filter.
+    """Check whether an activity's Strava type matches a type word.
 
     Matches the broad category ('run'/'ride') or the raw Strava sport/type string,
-    so 'run', 'trail run', 'walk', or 'weighttraining' all resolve sensibly.
+    so 'run', 'walk', or 'weighttraining' resolve sensibly.
     """
     wanted = activity_type.strip().lower()
     category = _get_activity_type(activity)  # 'run', 'ride', or 'other'
     raw = (activity.get("sport_type") or activity.get("type") or "").lower()
-    return wanted == category or bool(raw) and (wanted in raw or raw in wanted)
+    return wanted == category or (bool(raw) and wanted in raw)
+
+
+def _select_matching(items, identity_of, descriptor: str):
+    """Select items matching a descriptor, tiered: exact name, name substring, then type.
+
+    `identity_of(item)` returns a dict with 'name'/'type'/'sport_type'. Tiering lets
+    'run' pick any run, while 'morning run' or 'morning' picks the specifically-named
+    activity even when several share a type (Strava names encode time of day).
+    """
+    wanted = descriptor.strip().lower()
+
+    def name_of(item) -> str:
+        return (identity_of(item).get("name") or "").lower()
+
+    exact = [i for i in items if name_of(i) == wanted]
+    if exact:
+        return exact
+
+    by_name = [i for i in items if wanted and wanted in name_of(i)]
+    if by_name:
+        return by_name
+
+    return [i for i in items if _activity_matches_type(identity_of(i), wanted)]
 
 
 def _format_activity_options(activities: list[dict]) -> str:
@@ -818,9 +831,21 @@ def _build_summary_message(activity: dict, file_path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def fetch_latest_workout() -> str:
-    """Fetch the latest workout from Strava and save as markdown."""
-    activity = await strava_client.get_latest_activity()
+async def fetch_latest_workout(activity_type: str | None = None) -> str:
+    """Fetch the latest workout from Strava and save as markdown.
+
+    With `activity_type` (e.g. 'run', 'walk', 'ride'), fetch the most recent activity
+    of that kind rather than the single most recent activity overall.
+    """
+    if activity_type:
+        recent = await strava_client.list_recent_activities()
+        matches = _select_matching(recent, lambda a: a, activity_type)
+        if not matches:
+            return f"No recent '{activity_type}' activity found on Strava."
+        activity = await strava_client.get_activity(matches[0]["id"])
+    else:
+        activity = await strava_client.get_latest_activity()
+
     zones = await strava_client.get_activity_zones(activity["id"])
     laps = await strava_client.get_activity_laps(activity["id"])
     markdown = format_workout_markdown(activity, zones=zones, laps=laps)
@@ -859,7 +884,7 @@ async def fetch_workout_by_date(date_str: str, activity_type: str | None = None)
 
     candidates = activities
     if activity_type:
-        candidates = [a for a in activities if _activity_matches_type(a, activity_type)]
+        candidates = _select_matching(activities, lambda a: a, activity_type)
         if not candidates:
             return (
                 f"No '{activity_type}' activity found on "
@@ -870,7 +895,7 @@ async def fetch_workout_by_date(date_str: str, activity_type: str | None = None)
     if len(candidates) > 1:
         return (
             f"Multiple activities found on {target_date.strftime('%B %d, %Y')}. "
-            f"Specify which one (e.g. by type or time):\n"
+            f"Specify which one by type or name (e.g. 'run' or 'morning run'):\n"
             f"{_format_activity_options(candidates)}"
         )
 

@@ -529,6 +529,59 @@ class TestFetchLatestWorkout:
         assert "2026-03-19" in files[0].name
         assert "morning-run" in files[0].name
 
+    @pytest.mark.asyncio
+    async def test_fetch_latest_workout_by_type(self, test_config, tmp_path):
+        """activity_type should grab the most recent activity of that kind."""
+        walk = {
+            **SAMPLE_RUN_ACTIVITY,
+            "id": 999,
+            "name": "Evening Walk",
+            "type": "Walk",
+            "sport_type": "Walk",
+        }
+        with (
+            patch(
+                "app.agents.workout.workout_service.strava_client.list_recent_activities",
+                new_callable=AsyncMock,
+                return_value=[walk, SAMPLE_RUN_ACTIVITY],
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity",
+                new_callable=AsyncMock,
+                return_value=SAMPLE_RUN_ACTIVITY,
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity_zones",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity_laps",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch("app.agents.workout.workout_service.config", test_config),
+        ):
+            result = await fetch_latest_workout(activity_type="run")
+
+        assert "Saved" in result
+        assert "Morning Run" in result
+
+    @pytest.mark.asyncio
+    async def test_fetch_latest_workout_by_type_no_match(self, test_config):
+        """activity_type with no recent match should report none found."""
+        with (
+            patch(
+                "app.agents.workout.workout_service.strava_client.list_recent_activities",
+                new_callable=AsyncMock,
+                return_value=[SAMPLE_RUN_ACTIVITY],
+            ),
+            patch("app.agents.workout.workout_service.config", test_config),
+        ):
+            result = await fetch_latest_workout(activity_type="ride")
+
+        assert "No recent 'ride' activity found" in result
+
 
 class TestFetchWorkoutByDate:
     @pytest.mark.asyncio
@@ -647,6 +700,52 @@ class TestFetchWorkoutByDate:
 
         assert "No 'ride' activity found" in result
         assert "Morning Run" in result
+
+    @pytest.mark.asyncio
+    async def test_fetch_workout_by_date_two_runs_disambiguated_by_name(
+        self, test_config, tmp_path
+    ):
+        """Two same-type activities should be selectable by name (e.g. 'morning run')."""
+        afternoon_run = {
+            **SAMPLE_RUN_ACTIVITY,
+            "id": 222,
+            "name": "Afternoon Run",
+            "start_date": "2026-03-19T21:00:00Z",
+            "start_date_local": "2026-03-19T14:00:00",
+        }
+        with (
+            patch(
+                "app.agents.workout.workout_service.strava_client.list_activities_on_date",
+                new_callable=AsyncMock,
+                return_value=[SAMPLE_RUN_ACTIVITY, afternoon_run],
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity",
+                new_callable=AsyncMock,
+                return_value=SAMPLE_RUN_ACTIVITY,
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity_zones",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity_laps",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch("app.agents.workout.workout_service.config", test_config),
+        ):
+            # 'run' alone is ambiguous between the two runs
+            ambiguous = await fetch_workout_by_date("2026-03-19", activity_type="run")
+            # 'morning run' (the activity name) resolves it
+            resolved = await fetch_workout_by_date(
+                "2026-03-19", activity_type="morning run"
+            )
+
+        assert "Multiple activities" in ambiguous
+        assert "Saved" in resolved
+        assert "Morning Run" in resolved
 
 
 class TestListWorkoutsOnDate:

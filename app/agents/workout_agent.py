@@ -21,9 +21,13 @@ from app.core.settings import config, get_model_settings_for_agent
 
 
 @function_tool
-async def get_latest_workout() -> str:
-    """Fetch the most recent activity from Strava and save it as a structured markdown file with all objective data (summary, splits, laps, HR zones, best efforts)."""
-    return await svc_fetch_latest_workout()
+async def get_latest_workout(activity_type: str | None = None) -> str:
+    """Fetch the most recent activity from Strava and save it as a structured markdown file with all objective data (summary, splits, laps, HR zones, best efforts).
+
+    Args:
+        activity_type: Optional filter, e.g. 'run', 'walk', 'ride', to grab the most recent activity of that kind. Use when the very latest activity isn't the one the user means (e.g. "grab my latest run" when a later walk exists). Omit to fetch the single most recent activity.
+    """
+    return await svc_fetch_latest_workout(activity_type)
 
 
 @function_tool
@@ -99,8 +103,8 @@ def create_workout_agent(model: str = None) -> Agent:
 You are a workout tracking assistant. You help the user fetch activity data from Strava, add subjective notes and other manual sections, and retrieve workout summaries.
 
 Tool usage:
-- Use `get_latest_workout` ONLY when the user explicitly wants to fetch/import the single most recent workout from Strava (e.g., "grab my run", "get my latest workout", "import my ride").
-- Use `get_workout_by_date` ONLY when the user wants to fetch/import a workout from Strava for a specific date. If the user refers to a particular activity (e.g., "the morning run", "my walk") and there may be more than one activity that day, pass `activity_type` (e.g. 'run', 'walk', 'ride') to select the right one. If a fetch reports multiple activities, retry with `activity_type`.
+- Use `get_latest_workout` when the user wants to fetch/import the most recent workout from Strava (e.g., "grab my run", "get my latest workout", "import my ride"). If they mean the most recent activity of a particular kind (e.g., "grab my latest run" when a later walk exists), pass `activity_type` (e.g. 'run', 'walk', 'ride').
+- Use `get_workout_by_date` ONLY when the user wants to fetch/import a workout from Strava for a specific date. If the user refers to a particular activity (e.g., "the morning run", "my walk") and there may be more than one activity that day, pass `activity_type` to select it. This accepts a type ('run', 'walk', 'ride') or part of the activity name ('morning run', 'morning'), which helps when several activities share a type. If a fetch reports multiple activities, retry with a more specific value.
 - Use `list_workouts_on_date` when the user has multiple activities in a day and you need to see the options (names, types, times) before fetching a specific one.
 - Use `get_workout_summary` when the user wants to SEE or RETRIEVE an existing workout (e.g., "send me today's workout", "show me my workout", "give me the markdown"). NEVER re-fetch from Strava when the user just wants to see what's already saved.
 - For both `get_workout_summary` and `update_workout_section`: when the user refers to a specific activity (e.g., "the morning run") and the date may have more than one saved workout, pass `activity_type` (e.g. 'run', 'walk', 'ride') so the notes/summary target the right file. If a call reports multiple matching files, retry with `activity_type`.
