@@ -215,7 +215,7 @@ class TestFormatWorkoutMarkdown:
         result = format_workout_markdown(SAMPLE_RUN_ACTIVITY)
 
         assert "# Morning Run" in result
-        assert "**Date:** 2026-03-19 (Thursday)" in result
+        assert "**Date:** 2026-03-19 (Thursday) 7:30 AM" in result
         assert "**Type:** Run" in result
         assert "**Sport Type:** Run" in result
         assert "**Workout Category:** Easy" in result
