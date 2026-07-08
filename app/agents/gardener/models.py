@@ -3,10 +3,12 @@ Garden database models using Pydantic for data validation and serialization.
 """
 
 import json
+import os
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Dict, List, Optional
+from loguru import logger
 from pydantic import BaseModel, Field, computed_field, field_validator, ConfigDict
 from app.core.timezone_utils import now_local
 
@@ -65,22 +67,43 @@ class GardenDB(BaseModel):
 
     @classmethod
     def load_from_file(cls, file_path: Path) -> "GardenDB":
-        """Load garden database from JSON file."""
+        """Load garden database from JSON file.
+
+        A corrupt file is backed up and replaced with a fresh default DB
+        rather than raising — this loads at import time, so an exception
+        here would prevent the whole app from starting.
+        """
         if not file_path.exists():
             # Create default database with initial plants
             garden_db = cls()
             garden_db.initialize_default_plants()
             return garden_db
 
-        with open(file_path, "r") as f:
-            data = json.load(f)
+        try:
+            with open(file_path, "r") as f:
+                data = json.load(f)
             return cls(**data)
+        except Exception as e:
+            backup = file_path.with_suffix(".json.corrupt")
+            logger.error(
+                f"Garden DB file is unreadable ({e}); backing it up to {backup} "
+                f"and starting with a fresh database"
+            )
+            try:
+                os.replace(file_path, backup)
+            except OSError as backup_err:
+                logger.error(f"Failed to back up corrupt garden DB: {backup_err}")
+            garden_db = cls()
+            garden_db.initialize_default_plants()
+            return garden_db
 
     def save_to_file(self, file_path: Path) -> None:
-        """Save garden database to JSON file."""
+        """Save garden database to JSON file atomically (temp file + rename)."""
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(file_path, "w") as f:
+        tmp_path = file_path.with_suffix(".json.tmp")
+        with open(tmp_path, "w") as f:
             json.dump(self.model_dump(), f, indent=2, default=self._json_encoder)
+        os.replace(tmp_path, file_path)
 
     def initialize_default_plants(self) -> None:
         """Initialize the database with default plants."""

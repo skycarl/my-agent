@@ -134,6 +134,7 @@ class TestEmailMonitorService:
             mock_config.email_sink_enabled = True
             mock_config.email_address = "test@example.com"
             mock_config.email_password = "password"
+            mock_config.email_sender_patterns = "alerts@"
 
             with patch(
                 "email_sink.monitor.EmailClient", return_value=mock_email_client
@@ -145,7 +146,8 @@ class TestEmailMonitorService:
                     await service.check_email_for_alerts()
 
                     # Should process each sink config
-                    assert mock_process.call_count == len(service.email_configs)
+                    assert len(service.email_configs) == 1
+                    assert mock_process.call_count == 1
 
     @pytest.mark.asyncio
     async def test_process_sink_config_no_messages(self):

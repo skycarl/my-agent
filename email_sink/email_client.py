@@ -32,6 +32,14 @@ class EmailClient:
 
         except Exception as e:
             logger.error(f"Failed to connect to IMAP server: {e}")
+            # If login failed after the socket was opened, close it — the
+            # context manager's __exit__ never runs when __enter__ raises.
+            if self.client:
+                try:
+                    self.client.shutdown()
+                except Exception:
+                    pass
+                self.client = None
             raise
 
     def disconnect(self) -> None:
@@ -93,16 +101,18 @@ class EmailClient:
             logger.error(f"Error retrieving messages from {sender_pattern}: {e}")
             raise
 
-    def mark_as_read(self, uid: str) -> None:
-        """Mark a message as read."""
+    def mark_as_read(self, uid: str) -> bool:
+        """Mark a message as read. Returns True on success."""
         if not self.client:
             raise RuntimeError("Not connected to IMAP server")
 
         try:
             self.client.add_flags([int(uid)], [b"\\Seen"])
             logger.debug(f"Marked message {uid} as read")
+            return True
         except Exception as e:
             logger.error(f"Failed to mark message {uid} as read: {e}")
+            return False
 
     def __enter__(self):
         """Context manager entry."""

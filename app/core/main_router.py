@@ -176,7 +176,7 @@ async def add_task(request: NewTaskRequest):
         # Validate schedule against Pydantic model before persisting
         try:
             TaskSchedule(**task_data.get("schedule", {}))
-        except (ValueError, Exception) as e:
+        except Exception as e:
             raise HTTPException(status_code=422, detail=f"Invalid schedule: {e}")
 
         if mode == "notify":
@@ -192,7 +192,7 @@ async def add_task(request: NewTaskRequest):
             if task_data.get("api_call"):
                 try:
                     api_call = APICallConfig(**task_data["api_call"])
-                except (ValueError, Exception) as e:
+                except Exception as e:
                     raise HTTPException(
                         status_code=422, detail=f"Invalid api_call: {e}"
                     )
@@ -216,7 +216,12 @@ async def add_task(request: NewTaskRequest):
 
         # Append to config and reload
         task_id = append_task_to_config(task_data)
-        scheduler_service.reload_configuration()
+        if not scheduler_service.reload_configuration():
+            logger.error(f"Scheduler reload failed after adding task {task_id}")
+            raise HTTPException(
+                status_code=500,
+                detail="Task was stored but the scheduler failed to reload; check server logs",
+            )
 
         return NewTaskResponse(
             success=True, message="Task added and scheduler reloaded", task_id=task_id
@@ -484,6 +489,10 @@ async def create_agent_response(request_body: AgentRequest, request: Request):
             }
         )
 
+    except HTTPException:
+        # Intentional 4xx/5xx (e.g. invalid model) — return it as-is instead
+        # of converting to a generic 500 with a spurious Telegram error DM.
+        raise
     except Exception as e:
         logger.error(f"Error in /agent_response endpoint: {str(e)}")
 
@@ -495,10 +504,11 @@ async def create_agent_response(request_body: AgentRequest, request: Request):
                 error_message = (
                     f"Sorry, I encountered an error processing your request: {str(e)}"
                 )
+                # Plain text: exception text can contain <, >, & that would
+                # make Telegram reject an HTML-parsed message.
                 await telegram_client.telegram_client.send_message(
                     user_id=target_user_id,
                     message=error_message,
-                    parse_mode="HTML",
                 )
                 logger.info("Sent error message to user via Telegram")
 
@@ -685,6 +695,18 @@ async def process_alert(request: AlertRequest):
             logger.error(f"Agent processing failed for alert {request.uid}: {e}")
             # Continue to store the alert even if agent processing failed
 
+        # Re-read the alerts file before mutating: the agent run above can
+        # take seconds, and another alert or the daily cleanup may have
+        # written the file in the meantime. There are no awaits between this
+        # read and the write below, so the read-modify-write is not
+        # interleaved with other event-loop work.
+        if alerts_file.exists():
+            try:
+                with open(alerts_file, "r", encoding="utf-8") as f:
+                    alerts = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError) as e:
+                logger.warning(f"Error re-reading alerts file before write: {e}")
+
         # Create the alert record with agent metadata (uses original body)
         alert_record = {
             "id": f"alert_{len(alerts) + 1}_{request.uid}",
@@ -697,6 +719,7 @@ async def process_alert(request: AlertRequest):
             "alert_type": request.alert_type,
             "notify_user": decision.notify_user if decision else False,
             "message_content": decision.message_content if decision else "",
+            "rationale": decision.rationale if decision else "",
             "agent_processing": agent_metadata.model_dump(),
             "status": "active",
         }
@@ -719,10 +742,13 @@ async def process_alert(request: AlertRequest):
         if len(alerts) > 200:
             alerts = alerts[-200:]
 
-        # Write back to file with proper error handling
+        # Write back atomically (temp file + rename) so a crash mid-write
+        # can't leave a truncated file behind
         try:
-            with open(alerts_file, "w", encoding="utf-8") as f:
+            tmp_file = alerts_file.with_suffix(".json.tmp")
+            with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump(alerts, f, indent=2, ensure_ascii=False, default=str)
+            os.replace(tmp_file, alerts_file)
         except Exception as e:
             logger.error(f"Failed to write alerts to file: {e}")
             raise HTTPException(
@@ -744,6 +770,11 @@ async def process_alert(request: AlertRequest):
 
         return JSONResponse(content=jsonable_encoder(response))
 
+    except HTTPException:
+        # Intentional status codes (403 sender not allowed, 500 storage
+        # failure) — let FastAPI return them instead of masking as a
+        # generic 500.
+        raise
     except Exception as e:
         processing_time = (now_local() - start_time).total_seconds() * 1000
         logger.error(f"Error in /process_alert endpoint: {str(e)}")

@@ -20,20 +20,32 @@ def test_config_loaded():
 
 
 @pytest.mark.asyncio
-async def test_verify_token_valid():
+async def test_verify_token_valid(monkeypatch):
     """Test verify_token with valid token."""
+    monkeypatch.setattr(config, "x_token", "test-token")
     # This should not raise an exception
-    await verify_token(config.x_token)
+    await verify_token("test-token")
 
 
 @pytest.mark.asyncio
-async def test_verify_token_invalid():
+async def test_verify_token_invalid(monkeypatch):
     """Test verify_token with invalid token."""
+    monkeypatch.setattr(config, "x_token", "test-token")
     with pytest.raises(HTTPException) as exc_info:
         await verify_token("invalid_token")
 
     assert exc_info.value.status_code == 401
     assert "Invalid authentication token" in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_verify_token_rejects_all_when_unconfigured(monkeypatch):
+    """With no X_TOKEN configured, every request is rejected (fail closed)."""
+    monkeypatch.setattr(config, "x_token", "")
+    with pytest.raises(HTTPException) as exc_info:
+        await verify_token("")
+
+    assert exc_info.value.status_code == 503
 
 
 def test_healthcheck_endpoint():

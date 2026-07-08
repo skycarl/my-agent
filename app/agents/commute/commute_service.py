@@ -5,6 +5,7 @@ Exposes plain functions that agents call directly via @function_tool.
 """
 
 import json
+import os
 import re
 from datetime import timedelta
 from pathlib import Path
@@ -147,15 +148,21 @@ def get_recent_alerts(
             agent_response = alert.get("agent_processing", {}).get("agent_response", "")
             notify_user, message_content = _parse_legacy_decision(agent_response or "")
 
-        # Extract rationale from agent processing metadata
-        rationale = ""
-        agent_response_str = alert.get("agent_processing", {}).get("agent_response", "")
-        if agent_response_str:
-            rat_match = re.search(
-                r"rationale='(.*?)'(?:\s|$)", agent_response_str, re.DOTALL
+        # Prefer the structured top-level rationale (written since this
+        # change); fall back to regex-parsing the repr for old alerts. The
+        # regex misses values containing quotes, which is why the field is
+        # now stored top-level.
+        rationale = alert.get("rationale", "")
+        if not rationale:
+            agent_response_str = alert.get("agent_processing", {}).get(
+                "agent_response", ""
             )
-            if rat_match:
-                rationale = rat_match.group(1)
+            if agent_response_str:
+                rat_match = re.search(
+                    r"rationale='(.*?)'(?:\s|$)", agent_response_str, re.DOTALL
+                )
+                if rat_match:
+                    rationale = rat_match.group(1)
 
         summaries.append(
             AlertSummary(
@@ -186,11 +193,17 @@ def cleanup_old_alerts(retention_days: int = 30) -> int:
         return 0
 
     cutoff = (now_local() - timedelta(days=retention_days)).isoformat()
-    active = [a for a in alerts if a.get("stored_date", "") >= cutoff]
+    # Keep alerts without a stored_date (legacy records) rather than
+    # treating the missing field as infinitely old
+    active = [a for a in alerts if "stored_date" not in a or a["stored_date"] >= cutoff]
     removed = len(alerts) - len(active)
 
     if removed > 0:
-        with open(ALERTS_FILE, "w", encoding="utf-8") as f:
+        # Atomic write (temp file + rename) so a crash mid-write can't
+        # leave a truncated file behind
+        tmp_file = ALERTS_FILE.with_suffix(".json.tmp")
+        with open(tmp_file, "w", encoding="utf-8") as f:
             json.dump(active, f, indent=2, ensure_ascii=False, default=str)
+        os.replace(tmp_file, ALERTS_FILE)
 
     return removed

@@ -123,4 +123,6 @@ def init_logging():
             }
         ]
     )
-    logger.add("app.log", level=log_level)
+    # Rotate and expire the log file so it can't grow without bound on a
+    # long-running deployment
+    logger.add("app.log", level=log_level, rotation="10 MB", retention=5)

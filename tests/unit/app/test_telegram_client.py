@@ -100,7 +100,10 @@ class TestMarkdownToTelegramHtml:
         result = markdown_to_telegram_html(
             "Check ([soundtransit.org](https://www.soundtransit.org/alerts)) for more."
         )
-        assert '<a href="https://www.soundtransit.org/alerts">soundtransit.org</a>' in result
+        assert (
+            '<a href="https://www.soundtransit.org/alerts">soundtransit.org</a>'
+            in result
+        )
         assert "](" not in result
 
     def test_ampersand_in_text(self):
@@ -160,5 +163,15 @@ class TestSplitMessage:
         chunks = self.client._split_message(msg)
         for chunk in chunks:
             assert len(chunk) <= TelegramClient.MAX_MESSAGE_LENGTH
-        # Verify we didn't lose content
-        assert "".join(chunks) == msg.replace("\n", ""  ) or len("".join(chunks)) > 0
+        # Verify no content was lost (whitespace at split boundaries is dropped)
+        assert "".join(chunks).replace(" ", "") == msg.replace(" ", "")
+
+    def test_leading_space_no_infinite_loop(self):
+        # Regression test: a long unbroken string whose only break point is
+        # at index 0 used to loop forever producing empty chunks
+        msg = " " + "x" * 5000
+        chunks = self.client._split_message(msg)
+        assert all(chunks)  # no empty chunks
+        assert "".join(chunks).replace(" ", "") == msg.replace(" ", "")
+        for chunk in chunks:
+            assert len(chunk) <= TelegramClient.MAX_MESSAGE_LENGTH

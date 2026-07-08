@@ -13,8 +13,8 @@ def test_config_defaults():
     # Use the test config method that doesn't load from .env file
     config = Config.create_test_config()
 
-    # Test authentication token default
-    assert config.x_token == "12345678910"
+    # Test authentication token default (empty — auth fails closed until set)
+    assert config.x_token == ""
 
     # Test OpenAI API key default (should be empty string)
     assert config.openai_api_key == ""
@@ -96,8 +96,8 @@ def test_config_partial_env_override():
     with patch.dict(os.environ, env_vars, clear=True):
         config = Config(_env_file=None)
 
-        # x_token should use default
-        assert config.x_token == "12345678910"
+        # x_token should use default (empty)
+        assert config.x_token == ""
         # openai_api_key should use env var
         assert config.openai_api_key == "sk-only-openai-key"
 

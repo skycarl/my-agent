@@ -1,7 +1,7 @@
 """
 Scheduler agent for converting natural-language scheduling requests into tasks.
 
-This agent uses the add_scheduled_task tool to create scheduled API calls
+This agent uses the schedule_task tool to create scheduled API calls
 to the application's /agent_response endpoint.
 """
 
@@ -51,8 +51,10 @@ async def schedule_task(
                 return f"Error: Invalid cron expression '{cron_expression}'"
             schedule = {"type": "cron", "expression": cron_expression}
         elif schedule_type == "interval":
-            if interval_seconds is None:
-                return "Error: interval_seconds is required for interval schedule"
+            if interval_seconds is None or int(interval_seconds) < 1:
+                return (
+                    "Error: interval_seconds (>= 1) is required for interval schedule"
+                )
             schedule = {"type": "interval", "interval_seconds": int(interval_seconds)}
         elif schedule_type == "date":
             if not run_at:
@@ -81,6 +83,8 @@ async def schedule_task(
         }
 
         if mode == "notify":
+            if not instruction.strip():
+                return "Error: instruction (the message to send) is required for notify mode"
             new_task["notification"] = {
                 "message": instruction,
                 "parse_mode": "HTML",
@@ -103,7 +107,11 @@ async def schedule_task(
         from app.core.scheduler import scheduler_service  # local import
 
         append_task_to_config(new_task)
-        scheduler_service.reload_configuration()
+        if not scheduler_service.reload_configuration():
+            return (
+                "Error: task was stored but the scheduler failed to reload; "
+                "the task may not run until the problem is fixed"
+            )
 
         # Short confirmation
         if schedule_type == "cron":
@@ -188,7 +196,5 @@ Be concise and to the point. Answer the user's question directly and do not offe
         model=agent_model,
     )
 
-    logger.debug(
-        f"Scheduler agent created with model '{agent_model}' and the add_scheduled_task tool"
-    )
+    logger.debug(f"Scheduler agent created with model '{agent_model}'")
     return scheduler

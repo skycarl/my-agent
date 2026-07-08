@@ -6,8 +6,11 @@ and managing structured override entries with expiry.
 """
 
 import json
+import os
 import uuid
 from pathlib import Path
+
+from loguru import logger
 
 from app.core.settings import config
 from app.core.timezone_utils import now_local
@@ -45,16 +48,21 @@ def _read_overrides_raw() -> list[dict]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError):
+    except (json.JSONDecodeError, FileNotFoundError) as e:
+        # Don't fail the caller, but leave a loud trace: the next write
+        # will replace whatever is in the unreadable file.
+        logger.error(f"Commute overrides file is unreadable, treating as empty: {e}")
         return []
 
 
 def _write_overrides(overrides: list[dict]) -> None:
-    """Write overrides list to JSON file."""
+    """Write overrides list to JSON file atomically (temp file + rename)."""
     path = _overrides_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    tmp_path = path.with_suffix(".json.tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(overrides, f, indent=2, ensure_ascii=False)
+    os.replace(tmp_path, path)
 
 
 def get_commute_overrides() -> list[dict]:

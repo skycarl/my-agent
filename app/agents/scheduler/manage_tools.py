@@ -108,7 +108,11 @@ async def delete_scheduled_task(name: str) -> str:
         if not removed:
             return f"Task not found or already removed: {task.get('name')} [{task_id}]"
 
-        scheduler_service.reload_configuration()
+        if not scheduler_service.reload_configuration():
+            return (
+                f"Deleted {task.get('name')} from storage, but the scheduler "
+                f"failed to reload; check server logs."
+            )
         logger.info(f"Agent tool deleted scheduled task: {task_id}")
         return f"Deleted: {task.get('name')} [{task_id}]"
     except Exception as e:
@@ -132,8 +136,12 @@ async def toggle_scheduled_task(name: str) -> str:
         if new_state is None:
             return f"Task not found: {task.get('name')} [{task_id}]"
 
-        scheduler_service.reload_configuration()
         state_label = "enabled" if new_state else "disabled"
+        if not scheduler_service.reload_configuration():
+            return (
+                f"{task.get('name')} was {state_label} in storage, but the "
+                f"scheduler failed to reload; check server logs."
+            )
         logger.info(f"Agent tool toggled scheduled task: {task_id} → {state_label}")
         return f"{task.get('name')} is now {state_label}."
     except Exception as e:
@@ -172,7 +180,11 @@ async def edit_scheduled_task(
         if new_schedule is None:
             return f"Task not found: {task.get('name')} [{task_id}]"
 
-        scheduler_service.reload_configuration()
+        if not scheduler_service.reload_configuration():
+            return (
+                f"Updated {task.get('name')} in storage, but the scheduler "
+                f"failed to reload; check server logs."
+            )
         logger.info(f"Agent tool updated schedule for task: {task_id}")
         return f"Updated {task.get('name')} schedule to {schedule_type}."
     except Exception as e:

@@ -3,7 +3,7 @@ Tests for the agent response handler.
 """
 
 import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch
 from app.core.agent_response_handler import AgentResponseHandler
 
 
@@ -107,63 +107,15 @@ class TestAgentResponseHandler:
         assert "boolean" in error
 
     @pytest.mark.asyncio
-    async def test_send_telegram_notification_success(self):
-        """Test successful Telegram notification."""
-        with patch("app.core.telegram_client.telegram_client") as mock_client:
-            with patch("app.core.agent_response_handler.config") as mock_config:
-                mock_config.owner_user_id = 12345
-                mock_client.send_message = AsyncMock(return_value=(True, "msg_123"))
-
-                success, result = await AgentResponseHandler.send_telegram_notification(
-                    "Test message"
-                )
-
-                assert success is True
-                assert result == "msg_123"
-                mock_client.send_message.assert_called_once_with(
-                    user_id=12345, message="Test message", parse_mode="HTML"
-                )
-
-    @pytest.mark.asyncio
-    async def test_send_telegram_notification_no_user_id(self):
-        """Test Telegram notification with no authorized user."""
-        with patch("app.core.agent_response_handler.config") as mock_config:
-            mock_config.owner_user_id = None
-
-            success, result = await AgentResponseHandler.send_telegram_notification(
-                "Test message"
-            )
-
-            assert success is False
-            assert "No owner user configured" in result
-
-    @pytest.mark.asyncio
-    async def test_send_telegram_notification_failure(self):
-        """Test failed Telegram notification."""
-        with patch("app.core.telegram_client.telegram_client") as mock_client:
-            with patch("app.core.agent_response_handler.config") as mock_config:
-                mock_config.owner_user_id = 12345
-                mock_client.send_message = AsyncMock(return_value=(False, None))
-
-                success, result = await AgentResponseHandler.send_telegram_notification(
-                    "Test message"
-                )
-
-                assert success is False
-                assert "Telegram send failed" in result
-
-    @pytest.mark.asyncio
     async def test_process_agent_response_no_json(self):
         """Test processing response without JSON."""
         response = "This is a regular response without JSON tags."
 
         (
-            notification_sent,
             processed_message,
             metadata,
         ) = await AgentResponseHandler.process_agent_response(response)
 
-        assert notification_sent is False
         assert processed_message == response
         assert metadata["has_json"] is False
         assert "no_json_found" in metadata["actions_taken"]
@@ -181,25 +133,15 @@ class TestAgentResponseHandler:
         </json>
         """
 
-        with patch.object(
-            AgentResponseHandler, "send_telegram_notification"
-        ) as mock_send:
-            mock_send.return_value = (True, "msg_123")
+        (
+            processed_message,
+            metadata,
+        ) = await AgentResponseHandler.process_agent_response(response)
 
-            (
-                notification_sent,
-                processed_message,
-                metadata,
-            ) = await AgentResponseHandler.process_agent_response(
-                response, context="alert_processing", alert_id="alert_456"
-            )
-
-            assert notification_sent is True
-            assert processed_message == "Important alert message"
-            assert metadata["has_json"] is True
-            assert metadata["json_valid"] is True
-            assert metadata["notification_sent"] is True
-            assert "notification_sent" in metadata["actions_taken"]
+        assert processed_message == "Important alert message"
+        assert metadata["has_json"] is True
+        assert metadata["json_valid"] is True
+        assert "notification_requested" in metadata["actions_taken"]
 
     @pytest.mark.asyncio
     async def test_process_agent_response_no_notification_needed(self):
@@ -215,12 +157,10 @@ class TestAgentResponseHandler:
         """
 
         (
-            notification_sent,
             processed_message,
             metadata,
         ) = await AgentResponseHandler.process_agent_response(response)
 
-        assert notification_sent is False
         assert processed_message == ""
         assert metadata["notification_decision"]["notify_user"] is False
         assert "notification_not_needed" in metadata["actions_taken"]
@@ -242,7 +182,6 @@ class TestAgentResponseHandler:
             AgentResponseHandler, "process_agent_response"
         ) as mock_process:
             mock_process.return_value = (
-                True,
                 "Here's your answer",
                 {
                     "has_json": True,
@@ -271,7 +210,6 @@ class TestAgentResponseHandler:
             AgentResponseHandler, "process_agent_response"
         ) as mock_process:
             mock_process.return_value = (
-                False,
                 response,
                 {"has_json": False, "json_valid": False},
             )
@@ -283,38 +221,6 @@ class TestAgentResponseHandler:
 
             assert should_respond is True
             assert message == response
-
-    @pytest.mark.asyncio
-    async def test_process_agent_response_telegram_error(self):
-        """Test processing when Telegram sending fails during alert processing."""
-        response = """
-        <json>
-        {
-            "notify_user": true,
-            "message_content": "Test message",
-            "rationale": "Testing error handling"
-        }
-        </json>
-        """
-
-        with patch.object(
-            AgentResponseHandler, "send_telegram_notification"
-        ) as mock_send:
-            mock_send.return_value = (False, "Connection error")
-
-            (
-                notification_sent,
-                processed_message,
-                metadata,
-            ) = await AgentResponseHandler.process_agent_response(
-                response, context="alert_processing", alert_id="test_alert"
-            )
-
-            assert notification_sent is False
-            assert processed_message == "Test message"
-            assert metadata["notification_sent"] is False
-            assert "notification_failed" in metadata["actions_taken"]
-            assert "Connection error" in metadata["error"]
 
     @pytest.mark.asyncio
     async def test_process_agent_response_empty_message_content(self):
@@ -330,45 +236,27 @@ class TestAgentResponseHandler:
         """
 
         (
-            notification_sent,
             processed_message,
             metadata,
         ) = await AgentResponseHandler.process_agent_response(response)
 
-        assert notification_sent is False
         assert processed_message == ""
         assert "empty_message_content" in metadata["actions_taken"]
         assert "empty" in metadata["error"]
 
     @pytest.mark.asyncio
-    async def test_user_query_no_duplicate_notifications(self):
-        """Test that user queries don't send duplicate Telegram notifications."""
+    async def test_user_query_response_notify_true(self):
+        """process_user_query_response returns the message when notify_user=true."""
         response = """
         <json>
         {
             "notify_user": true,
             "message_content": "Test response for user",
-            "rationale": "Testing no duplication"
+            "rationale": "Testing"
         }
         </json>
         """
 
-        # For user queries, process_agent_response should NOT send Telegram notification
-        (
-            notification_sent,
-            processed_message,
-            metadata,
-        ) = await AgentResponseHandler.process_agent_response(
-            response, context="user_query"
-        )
-
-        # Should NOT have sent notification (deferred to endpoint)
-        assert notification_sent is False
-        assert processed_message == "Test response for user"
-        assert metadata["notification_sent"] is False
-        assert "notification_deferred_to_endpoint" in metadata["actions_taken"]
-
-        # But process_user_query_response should still return should_respond=True
         (
             should_respond,
             message,

@@ -33,6 +33,11 @@ if ! docker compose -f docker-compose.yml down; then
   exit 1
 fi
 
+# Pass build info through to the containers so /version reports the deployed commit
+GIT_COMMIT="$(git -C "$REPO_DIR" rev-parse HEAD)"
+GIT_COMMIT_MESSAGE="$(git -C "$REPO_DIR" log -1 --pretty=%s)"
+export GIT_COMMIT GIT_COMMIT_MESSAGE
+
 if ! docker compose -f docker-compose.yml up -d --build; then
   echo "Failed to build and start Docker containers"
   exit 1

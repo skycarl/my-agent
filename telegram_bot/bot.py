@@ -102,26 +102,27 @@ class TelegramBot:
             user = update.message.from_user
             chat = update.message.chat
 
-            # Format the notification message
+            # Format the notification message. Sent as plain text: the message
+            # and username are attacker-controlled, and unbalanced Markdown
+            # entities would make Telegram reject the notification entirely.
             notification_text = (
-                f"🚨 **UNAUTHORIZED ACCESS ATTEMPT** 🚨\n\n"
-                f"**Action:** {action.upper()}\n"
-                f"**User ID:** `{user.id}`\n"
-                f"**Username:** @{user.username or 'N/A'}\n"
-                f"**Name:** {user.first_name or ''} {user.last_name or ''}".strip()
+                f"🚨 UNAUTHORIZED ACCESS ATTEMPT 🚨\n\n"
+                f"Action: {action.upper()}\n"
+                f"User ID: {user.id}\n"
+                f"Username: @{user.username or 'N/A'}\n"
+                f"Name: {user.first_name or ''} {user.last_name or ''}".strip()
                 + "\n"
-                f"**Chat ID:** `{chat.id}`\n"
-                f"**Chat Type:** {chat.type}\n"
-                f"**Message:** `{update.message.text or 'N/A'}`\n"
-                f"**Date:** {update.message.date}\n"
-                f"**Message ID:** `{update.message.message_id}`"
+                f"Chat ID: {chat.id}\n"
+                f"Chat Type: {chat.type}\n"
+                f"Message: {update.message.text or 'N/A'}\n"
+                f"Date: {update.message.date}\n"
+                f"Message ID: {update.message.message_id}"
             )
 
             # Send notification to owner
             await self.application.bot.send_message(
                 chat_id=self.owner_user_id,
                 text=notification_text,
-                parse_mode="Markdown",
             )
 
             logger.info(
@@ -555,16 +556,25 @@ Just send me any message and I'll respond using AI!
                         f"Backend accepted message for processing: {response_data}"
                     )
                 else:
-                    logger.warning(
-                        f"Backend failed to accept message: {response.status_code} - {response.text}"
+                    # A response this fast means the backend actively rejected
+                    # the request (bad token, invalid payload). Raise so the
+                    # handler tells the user instead of failing silently.
+                    logger.error(
+                        f"Backend rejected message: {response.status_code} - {response.text}"
+                    )
+                    raise RuntimeError(
+                        f"Backend rejected message with status {response.status_code}"
                     )
 
         except httpx.TimeoutException:
-            # Fire-and-forget: silently ignore backend timeouts
+            # Fire-and-forget: the backend keeps processing after we stop
+            # waiting, and it delivers the reply via Telegram itself.
             pass
-        except Exception as e:
-            logger.error(f"Error sending message to backend: {e}")
-            # Note: We don't re-raise here since this is fire-and-forget
+        except httpx.ConnectError:
+            # Backend is down/unreachable — raise so the handler can tell the
+            # user something went wrong rather than showing nothing at all.
+            logger.error(f"Backend unreachable at {self.app_url}")
+            raise
 
     async def set_model_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -591,27 +601,7 @@ Just send me any message and I'll respond using AI!
                 )
                 return
 
-            # Create inline keyboard with model buttons (3 wide)
-            keyboard = []
-            row = []
-
-            for i, model in enumerate(available_models):
-                # Add checkmark if this is the current model
-                button_text = f"✅ {model}" if model == self.selected_model else model
-                row.append(
-                    InlineKeyboardButton(button_text, callback_data=f"model_{model}")
-                )
-
-                # Start new row every 3 buttons
-                if (i + 1) % 3 == 0:
-                    keyboard.append(row)
-                    row = []
-
-            # Add remaining buttons if any
-            if row:
-                keyboard.append(row)
-
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            reply_markup = self._build_model_keyboard(available_models)
 
             message_text = (
                 f"🤖 Current model: **{self.selected_model}**\n\nSelect a model to use:"
@@ -630,6 +620,31 @@ Just send me any message and I'll respond using AI!
             await update.message.reply_text(
                 "❌ Failed to load model options. Please try again."
             )
+
+    def _build_model_keyboard(
+        self, available_models: list[str]
+    ) -> InlineKeyboardMarkup:
+        """Build the model-selection inline keyboard (3 buttons wide)."""
+        keyboard = []
+        row = []
+
+        for i, model in enumerate(available_models):
+            # Add checkmark if this is the current model
+            button_text = f"✅ {model}" if model == self.selected_model else model
+            row.append(
+                InlineKeyboardButton(button_text, callback_data=f"model_{model}")
+            )
+
+            # Start new row every 3 buttons
+            if (i + 1) % 3 == 0:
+                keyboard.append(row)
+                row = []
+
+        # Add remaining buttons if any
+        if row:
+            keyboard.append(row)
+
+        return InlineKeyboardMarkup(keyboard)
 
     async def _get_available_models(self) -> list[str]:
         """Get available models from the API."""
@@ -692,36 +707,10 @@ Just send me any message and I'll respond using AI!
             # Answer the callback query
             await update.callback_query.answer(f"✅ Model set to {selected_model}")
 
-            # Update the message to show the new selection
+            # Update the message to show the new selection, reusing the model
+            # list fetched above for validation.
             try:
-                # Get available models again for the updated keyboard
-                available_models = await self._get_available_models()
-
-                # Create updated inline keyboard
-                keyboard = []
-                row = []
-
-                for i, model in enumerate(available_models):
-                    # Add checkmark if this is the current model
-                    button_text = (
-                        f"✅ {model}" if model == self.selected_model else model
-                    )
-                    row.append(
-                        InlineKeyboardButton(
-                            button_text, callback_data=f"model_{model}"
-                        )
-                    )
-
-                    # Start new row every 3 buttons
-                    if (i + 1) % 3 == 0:
-                        keyboard.append(row)
-                        row = []
-
-                # Add remaining buttons if any
-                if row:
-                    keyboard.append(row)
-
-                reply_markup = InlineKeyboardMarkup(keyboard)
+                reply_markup = self._build_model_keyboard(available_models)
 
                 message_text = f"🤖 Current model: **{self.selected_model}**\n\nSelect a model to use:"
 
@@ -730,9 +719,9 @@ Just send me any message and I'll respond using AI!
                 )
 
             except Exception as e:
+                # The callback was already answered above, so the user still
+                # got confirmation even if the keyboard refresh failed.
                 logger.warning(f"Failed to update message after model selection: {e}")
-                # If we can't update the message, at least answer the callback
-                await update.callback_query.answer(f"✅ Model set to {selected_model}")
 
         except Exception as e:
             logger.warning(f"Error handling model callback: {e}")
@@ -792,17 +781,3 @@ Just send me any message and I'll respond using AI!
         # Start polling with drop_pending_updates=True
         logger.info("Telegram bot is running and polling for messages...")
         self.application.run_polling(drop_pending_updates=True)
-
-
-def main():
-    """Main function to run the bot."""
-    try:
-        bot = TelegramBot()
-        bot.run()
-    except Exception as e:
-        logger.error(f"Failed to start bot: {e}")
-        raise
-
-
-if __name__ == "__main__":
-    main()

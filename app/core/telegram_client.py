@@ -107,17 +107,19 @@ class TelegramClient:
                 chunks.append(remaining)
                 break
 
-            # Try to split at a newline within the limit
-            split_pos = remaining.rfind("\n", 0, self.MAX_MESSAGE_LENGTH)
-            if split_pos == -1:
+            # Try to split at a newline within the limit. A break point at
+            # index 0 would produce an empty chunk and no progress (infinite
+            # loop), so search from index 1.
+            split_pos = remaining.rfind("\n", 1, self.MAX_MESSAGE_LENGTH)
+            if split_pos <= 0:
                 # No newline found, try a space
-                split_pos = remaining.rfind(" ", 0, self.MAX_MESSAGE_LENGTH)
-            if split_pos == -1:
+                split_pos = remaining.rfind(" ", 1, self.MAX_MESSAGE_LENGTH)
+            if split_pos <= 0:
                 # No good break point, hard cut
                 split_pos = self.MAX_MESSAGE_LENGTH
 
             chunks.append(remaining[:split_pos])
-            remaining = remaining[split_pos:].lstrip("\n")
+            remaining = remaining[split_pos:].lstrip("\n ")
 
         return chunks
 
@@ -215,89 +217,6 @@ class TelegramClient:
             logger.error(f"Error sending Telegram message to user {user_id}: {str(e)}")
             logger.debug(f"Telegram client error details: {e}", exc_info=True)
             return False, None
-
-    async def send_message_with_retry(
-        self,
-        user_id: int,
-        message: str,
-        parse_mode: Optional[str] = None,
-        max_retries: int = 3,
-        retry_delay: int = 5,
-    ) -> Tuple[bool, Optional[int]]:
-        """
-        Send a message with retry logic.
-
-        Args:
-            user_id: Telegram user ID to send the message to
-            message: Message text to send
-            parse_mode: Optional parse mode (e.g., 'Markdown', 'HTML')
-            max_retries: Maximum number of retry attempts
-            retry_delay: Delay between retries in seconds
-
-        Returns:
-            Tuple of (success: bool, message_id: Optional[int])
-        """
-        import asyncio
-
-        for attempt in range(max_retries + 1):
-            success, message_id = await self.send_message(user_id, message, parse_mode)
-
-            if success:
-                return True, message_id
-
-            if attempt < max_retries:
-                logger.debug(
-                    f"Telegram message send attempt {attempt + 1} failed, retrying in {retry_delay}s"
-                )
-                await asyncio.sleep(retry_delay)
-            else:
-                logger.error(
-                    f"Failed to send Telegram message to user {user_id} after {max_retries + 1} attempts"
-                )
-
-        return False, None
-
-    async def test_connection(self) -> bool:
-        """
-        Test the Telegram bot connection by getting bot info.
-
-        Returns:
-            True if connection is successful, False otherwise
-        """
-        try:
-            self.validate_configuration()
-
-            logger.debug("Testing Telegram bot connection...")
-
-            async with httpx.AsyncClient() as client:
-                response = await client.get(f"{self.base_url}/getMe", timeout=10.0)
-
-                if response.status_code == 200:
-                    response_data = response.json()
-
-                    if response_data.get("ok"):
-                        bot_info = response_data.get("result", {})
-                        bot_name = bot_info.get("first_name", "Unknown")
-                        bot_username = bot_info.get("username", "Unknown")
-                        logger.info(
-                            f"Telegram bot connection successful - Bot: {bot_name} (@{bot_username})"
-                        )
-                        return True
-                    else:
-                        error_description = response_data.get(
-                            "description", "Unknown error"
-                        )
-                        logger.error(f"Telegram bot API error: {error_description}")
-                        return False
-                else:
-                    logger.error(
-                        f"Telegram bot connection failed with status {response.status_code}"
-                    )
-                    return False
-
-        except Exception as e:
-            logger.error(f"Error testing Telegram bot connection: {str(e)}")
-            return False
 
 
 # Create a global Telegram client instance
