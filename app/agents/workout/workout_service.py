@@ -716,13 +716,14 @@ def format_workout_markdown(
     start_date = datetime.fromisoformat(activity["start_date_local"])
     date_str = start_date.strftime("%Y-%m-%d")
     day_of_week = start_date.strftime("%A")
+    time_str = start_date.strftime("%-I:%M %p")
     activity_type = _get_activity_type(activity)
     sport_type = activity.get("sport_type") or activity.get("type", "Unknown")
 
     # Header
     lines = [
         f"# {activity.get('name', 'Workout')}",
-        f"**Date:** {date_str} ({day_of_week})",
+        f"**Date:** {date_str} ({day_of_week}) {time_str}",
         f"**Type:** {activity.get('type', 'Unknown')}",
         f"**Sport Type:** {sport_type}",
     ]
