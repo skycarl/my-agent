@@ -72,7 +72,7 @@ All mutating endpoints require `X-Token` header authentication (see `app/core/au
 
 - **settings.py** — Pydantic `BaseSettings` singleton (`config`). All config from `.env` file. Use `Config.create_test_config(**kwargs)` in tests to avoid loading `.env`.
 - **scheduler.py** — APScheduler service that reads `storage/scheduled_tasks.json`. Supports cron, interval, and one-time date schedules.
-- **conversation_manager.py** — Manages conversation history for agent context.
+- **session_manager.py** — Manages SDK conversation sessions for agent context.
 - **agent_response_handler.py** — Parses `<json>...</json>` tags in agent responses for notification decisions (notify_user, message_content, rationale).
 - **telegram_client.py** — Sends messages to Telegram users.
 - **task_store.py** — Read/write/delete scheduled tasks from JSON config file.

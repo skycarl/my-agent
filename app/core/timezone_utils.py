@@ -40,38 +40,6 @@ def now_local_isoformat() -> str:
     return now_local().isoformat()
 
 
-def utc_to_local(utc_datetime: datetime) -> datetime:
-    """
-    Convert UTC datetime to the configured local timezone.
-
-    Args:
-        utc_datetime: UTC datetime object
-
-    Returns:
-        Datetime in the configured local timezone
-    """
-    if utc_datetime.tzinfo is None:
-        # Assume UTC if no timezone info
-        utc_datetime = pytz.UTC.localize(utc_datetime)
-    return utc_datetime.astimezone(get_local_timezone())
-
-
-def local_to_utc(local_datetime: datetime) -> datetime:
-    """
-    Convert local datetime to UTC.
-
-    Args:
-        local_datetime: Local datetime object
-
-    Returns:
-        Datetime in UTC
-    """
-    if local_datetime.tzinfo is None:
-        # Assume local timezone if no timezone info
-        local_datetime = get_local_timezone().localize(local_datetime)
-    return local_datetime.astimezone(pytz.UTC)
-
-
 def get_scheduler_timezone():
     """
     Get the configured scheduler timezone from settings.

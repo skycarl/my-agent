@@ -115,8 +115,15 @@ class EmailMonitorService:
 
                     if success:
                         # Mark as read only if successfully processed
-                        email_client.mark_as_read(uid)
-                        logger.info(f"Successfully processed and marked as read: {uid}")
+                        if email_client.mark_as_read(uid):
+                            logger.info(
+                                f"Successfully processed and marked as read: {uid}"
+                            )
+                        else:
+                            logger.warning(
+                                f"Processed alert {uid} but failed to mark it as read; "
+                                f"it will be retried next poll (server dedup applies)"
+                            )
                     else:
                         logger.warning(
                             f"Failed to process alert {uid}, leaving as unread"
@@ -144,12 +151,14 @@ class EmailMonitorService:
             base_url = config.app_url.rstrip("/")
             full_url = f"{base_url}{endpoint}"
 
-            # Create the request payload
+            # Create the request payload. Truncate to the model's max lengths:
+            # an oversized field (e.g. a huge HTML-only body) would otherwise
+            # fail validation on every poll, leaving the email unread forever.
             alert_request = AlertRequest(
-                uid=alert.uid,
-                subject=alert.subject,
-                body=alert.body,
-                sender=alert.sender,
+                uid=alert.uid[:200],
+                subject=alert.subject[:1000],
+                body=alert.body[:50000],
+                sender=alert.sender[:500],
                 date=alert.date,
                 alert_type="email",
             )

@@ -6,7 +6,7 @@ import json
 import hashlib
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -24,6 +24,39 @@ from app.core.timezone_utils import (
     get_scheduler_timezone,
     ensure_timezone,
 )
+
+
+def remap_cron_day_of_week(field: str) -> str:
+    """Convert a standard-cron day-of-week field to APScheduler day names.
+
+    Standard cron uses 0=Sun..6=Sat (7=Sun); APScheduler uses 0=Mon..6=Sun.
+    Numeric expressions (values, lists, ranges, steps) are expanded into
+    explicit day-name lists, since a converted range like 0-2 (sun-tue) is
+    not a valid APScheduler range. Fields without digits (names, *) pass
+    through unchanged.
+    """
+    if not re.search(r"\d", field):
+        return field
+
+    names = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+    out: list[str] = []
+    for part in field.split(","):
+        if not re.search(r"\d", part):
+            out.append(part)
+            continue
+        expr, _, step_str = part.partition("/")
+        step = int(step_str) if step_str else 1
+        if expr == "*":
+            low, high = 0, 6
+        elif "-" in expr:
+            low_str, high_str = expr.split("-", 1)
+            low, high = int(low_str), int(high_str)
+        else:
+            low = high = int(expr)
+        out.extend(names[day % 7] for day in range(low, high + 1, step))
+
+    # Dedupe while preserving order (e.g. "0,7" both mean Sunday)
+    return ",".join(dict.fromkeys(out))
 
 
 class SchedulerService:
@@ -160,24 +193,7 @@ class SchedulerService:
                     )
                     return False
 
-                # Standard cron: 0=Sun,1=Mon,...,6=Sat (and 7=Sun)
-                # APScheduler:   0=Mon,1=Tue,...,6=Sun
-                # Remap by converting to 3-letter day names which both agree on.
-                _CRON_DOW_TO_NAME = {
-                    "0": "sun",
-                    "1": "mon",
-                    "2": "tue",
-                    "3": "wed",
-                    "4": "thu",
-                    "5": "fri",
-                    "6": "sat",
-                    "7": "sun",
-                }
-                raw_dow = cron_parts[4]
-                # Replace bare digits with names, preserving commas/ranges/wildcards
-                remapped_dow = re.sub(
-                    r"\b(\d)\b", lambda m: _CRON_DOW_TO_NAME[m.group(1)], raw_dow
-                )
+                remapped_dow = remap_cron_day_of_week(cron_parts[4])
 
                 trigger = CronTrigger(
                     minute=cron_parts[0],
@@ -341,8 +357,13 @@ class SchedulerService:
         )
         return True
 
-    def _config_reload_check(self) -> None:
-        """Periodic check for configuration file changes."""
+    async def _config_reload_check(self) -> None:
+        """Periodic check for configuration file changes.
+
+        Async so APScheduler runs it on the event loop rather than a worker
+        thread — reload_configuration mutates scheduler state that request
+        handlers also touch, and must not run concurrently with them.
+        """
         try:
             if self._should_reload_config():
                 logger.info("Configuration file changed, reloading...")
@@ -379,13 +400,23 @@ class SchedulerService:
                 max_instances=1,
             )
 
-            # Schedule daily cleanup of expired commute overrides at 1:00 AM
+            # Schedule daily cleanups at 1:00 AM. The wrappers are async so
+            # the jobs run on the event loop, not a worker thread — the
+            # cleanup functions do read-modify-write on JSON files that
+            # request handlers also touch, with no cross-thread locking.
             from app.agents.commute.preferences_service import (
                 cleanup_expired_overrides,
             )
+            from app.agents.commute.commute_service import cleanup_old_alerts
+
+            async def _run_overrides_cleanup() -> None:
+                cleanup_expired_overrides()
+
+            async def _run_alerts_cleanup() -> None:
+                cleanup_old_alerts()
 
             self.scheduler.add_job(
-                func=cleanup_expired_overrides,
+                func=_run_overrides_cleanup,
                 trigger=CronTrigger(
                     hour=1, minute=0, timezone=config.scheduler_timezone
                 ),
@@ -394,11 +425,8 @@ class SchedulerService:
                 max_instances=1,
             )
 
-            # Schedule daily cleanup of old commute alerts (30-day retention)
-            from app.agents.commute.commute_service import cleanup_old_alerts
-
             self.scheduler.add_job(
-                func=cleanup_old_alerts,
+                func=_run_alerts_cleanup,
                 trigger=CronTrigger(
                     hour=1, minute=0, timezone=config.scheduler_timezone
                 ),
@@ -434,45 +462,6 @@ class SchedulerService:
             logger.info("Scheduler service stopped")
         except Exception as e:
             logger.error(f"Error stopping scheduler service: {e}")
-
-    def get_scheduled_jobs(self) -> List[Dict]:
-        """Get information about currently scheduled jobs."""
-        if not self.running:
-            return []
-
-        jobs_info = []
-        for job in self.scheduler.get_jobs():
-            jobs_info.append(
-                {
-                    "id": job.id,
-                    "name": job.name,
-                    "next_run": job.next_run_time.isoformat()
-                    if job.next_run_time
-                    else None,
-                    "trigger": str(job.trigger),
-                    "func": job.func.__name__
-                    if hasattr(job.func, "__name__")
-                    else str(job.func),
-                }
-            )
-
-        return jobs_info
-
-    def get_status(self) -> Dict:
-        """Get scheduler service status."""
-        return {
-            "enabled": self.is_enabled(),
-            "running": self.running,
-            "timezone": config.scheduler_timezone,
-            "config_file": str(self._get_config_file_path()),
-            "config_file_exists": self._get_config_file_path().exists(),
-            "config_file_hash": self.config_file_hash[:16]
-            if self.config_file_hash
-            else None,
-            "reload_interval": config.task_config_reload_interval,
-            "loaded_tasks": len(self.loaded_task_ids),
-            "scheduled_jobs": len(self.scheduler.get_jobs()) if self.running else 0,
-        }
 
 
 # Create a global scheduler service instance

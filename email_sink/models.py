@@ -6,6 +6,9 @@ from datetime import datetime
 from typing import Dict, Any
 from pydantic import BaseModel, Field
 
+# Re-exported so the sink and server share one definition of the wire contract.
+from app.models.tasks import AlertRequest as AlertRequest
+
 
 class EmailAlert(BaseModel):
     """Model for a parsed email alert."""
@@ -28,14 +31,3 @@ class EmailSinkConfig(BaseModel):
     )
     endpoint: str = Field(description="Internal API endpoint to POST alerts to")
     description: str = Field(description="Human-readable description of this sink")
-
-
-class AlertRequest(BaseModel):
-    """Request model for posting alerts to internal endpoints."""
-
-    uid: str = Field(max_length=200)
-    subject: str = Field(max_length=1000)
-    body: str = Field(max_length=50000)
-    sender: str = Field(max_length=500)
-    date: datetime
-    alert_type: str = Field(default="email", max_length=50, description="Type of alert")

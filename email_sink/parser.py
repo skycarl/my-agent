@@ -56,17 +56,9 @@ class EmailParser:
             else:
                 body = "No body content"
 
-            # Parse date
-            date = None
-            if mail.date:
-                try:
-                    # mailparser returns datetime objects
-                    date = mail.date
-                except Exception as e:
-                    logger.warning(f"Failed to parse email date: {e}")
-                    date = now_local()
-            else:
-                date = now_local()
+            # mailparser returns a datetime, or None if the header was missing
+            # or unparseable
+            date = mail.date if mail.date else now_local()
 
             # Extract raw headers for additional context
             raw_headers = {}

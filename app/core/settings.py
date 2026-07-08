@@ -11,8 +11,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Config(BaseSettings):
     """Application config."""
 
-    # Authentication
-    x_token: str = Field(default="12345678910", description="API authentication token")
+    # Authentication. No default on purpose: a publicly known default token
+    # would silently protect every mutating endpoint. verify_token rejects
+    # all requests until X_TOKEN is configured.
+    x_token: str = Field(default="", description="API authentication token")
 
     # OpenAI Configuration
     openai_api_key: str = Field(
