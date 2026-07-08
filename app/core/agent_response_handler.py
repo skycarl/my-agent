@@ -2,15 +2,14 @@
 Unified agent response handler with JSON parsing and notification logic.
 
 This module provides centralized logic for processing agent responses,
-including parsing JSON notification instructions and handling Telegram
-notifications consistently across all endpoints.
+including parsing JSON notification instructions from <json>...</json> tags.
+Actually sending Telegram messages is the calling endpoint's responsibility.
 """
 
 import json
 import re
 from typing import Dict, Optional, Tuple
 from loguru import logger
-from app.core.settings import config
 
 
 class AgentResponseHandler:
@@ -77,82 +76,34 @@ class AgentResponseHandler:
     def _sanitize_telegram_html(text: str) -> str:
         """Sanitize text for safe Telegram HTML delivery.
 
-        Strips all HTML tags except Telegram's allowed formatting tags,
-        preventing injection of malicious HTML from agent responses.
+        Strips all HTML tags (Telegram only supports a limited subset and
+        notifications don't need any of them) and escapes HTML special
+        characters to prevent injection from agent responses.
         """
-        import re
-
-        # Strip all HTML tags - Telegram only supports a limited subset
-        # and we don't need any of them for alert notifications
         sanitized = re.sub(r"<[^>]+>", "", text)
-        # Escape HTML special characters to prevent injection
         sanitized = (
             sanitized.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         )
         return sanitized
 
     @staticmethod
-    async def send_telegram_notification(message: str) -> Tuple[bool, Optional[str]]:
+    async def process_agent_response(response: str) -> Tuple[str, Dict]:
         """
-        Send a notification via Telegram.
-
-        Args:
-            message: Message content to send
-
-        Returns:
-            Tuple of (success, message_id_or_error)
-        """
-        try:
-            # Import here to avoid circular imports
-            from app.core.telegram_client import telegram_client
-
-            target_user_id = config.owner_user_id
-            if not target_user_id:
-                logger.warning("No owner user ID configured for notifications")
-                return False, "No owner user configured"
-
-            sanitized_message = AgentResponseHandler._sanitize_telegram_html(message)
-            success, message_id = await telegram_client.send_message(
-                user_id=target_user_id,
-                message=sanitized_message,
-                parse_mode="HTML",
-            )
-
-            if success:
-                logger.info(
-                    f"Successfully sent Telegram notification to user {target_user_id}"
-                )
-                return True, message_id
-            else:
-                logger.warning(
-                    f"Failed to send Telegram notification to user {target_user_id}"
-                )
-                return False, "Telegram send failed"
-
-        except Exception as e:
-            logger.error(f"Error sending Telegram notification: {e}")
-            return False, str(e)
-
-    @staticmethod
-    async def process_agent_response(
-        response: str, context: str = "user_query", alert_id: Optional[str] = None
-    ) -> Tuple[bool, str, Dict]:
-        """
-        Process agent response with unified JSON parsing and notification logic.
+        Parse the notification decision from an agent response.
 
         Args:
             response: Raw agent response
-            context: Context of the request ("user_query", "alert_processing")
-            alert_id: Optional alert ID for tracking
 
         Returns:
-            Tuple of (notification_sent, processed_message, metadata)
+            Tuple of (message_for_user, metadata). message_for_user is empty
+            when the agent decided not to notify (or the decision was
+            malformed); when no <json> tags are present, the original
+            response is returned. Sending is the caller's responsibility.
         """
         metadata = {
             "has_json": False,
             "json_valid": False,
             "notification_decision": None,
-            "notification_sent": False,
             "error": None,
             "actions_taken": [],
         }
@@ -169,7 +120,7 @@ class AgentResponseHandler:
             logger.debug(
                 "No JSON tags found in agent response, returning original response"
             )
-            return False, original_response, metadata
+            return original_response, metadata
 
         if parsed_json is None:
             # JSON tags found but parsing failed - return original response
@@ -177,7 +128,7 @@ class AgentResponseHandler:
             logger.warning(
                 "JSON tags found but parsing failed, returning original response"
             )
-            return False, original_response, metadata
+            return original_response, metadata
 
         # Validate JSON structure
         is_valid, validation_error = AgentResponseHandler.validate_notification_json(
@@ -191,7 +142,7 @@ class AgentResponseHandler:
             logger.warning(
                 f"Invalid JSON structure in agent response: {validation_error}"
             )
-            return False, original_response, metadata
+            return original_response, metadata
 
         # Extract notification decision
         notify_user = parsed_json["notify_user"]
@@ -212,40 +163,18 @@ class AgentResponseHandler:
             # Agent decided not to notify user
             metadata["actions_taken"].append("notification_not_needed")
             logger.info(f"Agent determined no notification needed: {rationale}")
-            return False, "", metadata
+            return "", metadata
 
         if not message_content.strip():
             # Agent wants to notify but provided empty message
             metadata["error"] = "Agent wants to notify but message_content is empty"
             metadata["actions_taken"].append("empty_message_content")
             logger.warning("Agent wants to notify but provided empty message_content")
-            return False, "", metadata
+            return "", metadata
 
-        # For alert processing, send notification; for user queries, just return the message
-        if context == "alert_processing":
-            # Send notification
-            (
-                notification_sent,
-                send_result,
-            ) = await AgentResponseHandler.send_telegram_notification(message_content)
-            metadata["notification_sent"] = notification_sent
-
-            if notification_sent:
-                metadata["actions_taken"].append("notification_sent")
-                metadata["telegram_message_id"] = send_result
-
-                return True, message_content, metadata
-            else:
-                metadata["actions_taken"].append("notification_failed")
-                metadata["error"] = f"Failed to send notification: {send_result}"
-                logger.error(f"Failed to send Telegram notification: {send_result}")
-                return False, message_content, metadata
-        else:
-            # For user queries, don't send notification here - let the main endpoint handle it
-            metadata["actions_taken"].append("notification_deferred_to_endpoint")
-            metadata["notification_sent"] = False
-            logger.info(f"User query response ready: {message_content[:100]}...")
-            return False, message_content, metadata
+        metadata["actions_taken"].append("notification_requested")
+        logger.info(f"User query response ready: {message_content[:100]}...")
+        return message_content, metadata
 
     @staticmethod
     async def process_user_query_response(
@@ -268,12 +197,9 @@ class AgentResponseHandler:
         """
         # Process through unified handler
         (
-            notification_sent,
             processed_message,
             metadata,
-        ) = await AgentResponseHandler.process_agent_response(
-            response=response, context="user_query"
-        )
+        ) = await AgentResponseHandler.process_agent_response(response)
 
         # For user queries, we need to determine what to send back to the user
         if not metadata["has_json"]:

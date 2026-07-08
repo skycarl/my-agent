@@ -14,7 +14,7 @@ from loguru import logger
 
 from app.agents.workout import strava_client
 from app.core.settings import config
-from app.core.timezone_utils import now_local
+from app.core.timezone_utils import get_local_timezone, now_local
 
 
 METERS_PER_MILE = 1609.34
@@ -89,10 +89,13 @@ def _parse_date(date_str: str) -> datetime:
     if lower == "yesterday":
         return today - timedelta(days=1)
 
+    # Localize with pytz so the target date gets its own UTC offset —
+    # reusing today's tzinfo would apply today's DST offset to any date.
+
     # Try ISO format (YYYY-MM-DD)
     try:
-        return datetime.strptime(date_str.strip(), "%Y-%m-%d").replace(
-            tzinfo=today.tzinfo
+        return get_local_timezone().localize(
+            datetime.strptime(date_str.strip(), "%Y-%m-%d")
         )
     except ValueError:
         pass
@@ -100,7 +103,7 @@ def _parse_date(date_str: str) -> datetime:
     # Try "Month Day" format (e.g., "March 19")
     try:
         parsed = datetime.strptime(date_str.strip(), "%B %d")
-        return parsed.replace(year=today.year, tzinfo=today.tzinfo)
+        return get_local_timezone().localize(parsed.replace(year=today.year))
     except ValueError:
         pass
 
@@ -791,40 +794,45 @@ def _workout_file_path(activity: dict) -> Path:
     return Path(config.workouts_path) / filename
 
 
-def _save_workout(activity: dict, markdown: str) -> Path:
-    """Save workout markdown to file. Skips if file already exists to preserve manual edits."""
+def _save_workout(activity: dict, markdown: str) -> tuple[Path, bool]:
+    """Save workout markdown to file, unless it already exists (preserving
+    manual edits). Returns (path, saved) where saved is False if the
+    existing file was kept."""
     file_path = _workout_file_path(activity)
     if file_path.exists():
         logger.info(f"Workout file already exists at {file_path}, skipping save")
-        return file_path
+        return file_path, False
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(markdown)
     logger.info(f"Workout saved to {file_path}")
-    return file_path
+    return file_path, True
 
 
-def _build_summary_message(activity: dict, file_path: Path) -> str:
+def _build_summary_message(activity: dict, file_path: Path, saved: bool) -> str:
     """Build a concise summary message for the user."""
     activity_type = _get_activity_type(activity)
     distance_mi = activity["distance"] / METERS_PER_MILE
+
+    prefix = (
+        f"Saved {activity.get('name', 'workout')} to {file_path.name}"
+        if saved
+        else f"Kept existing file {file_path.name} for {activity.get('name', 'workout')} (not overwritten)"
+    )
 
     if activity_type == "run":
         avg_speed = activity.get("average_speed", 0)
         pace = _speed_to_pace(avg_speed) if avg_speed else "N/A"
         return (
-            f"Saved {activity.get('name', 'workout')} to {file_path.name}: "
+            f"{prefix}: "
             f"{distance_mi:.1f} mi, {_format_duration(activity['moving_time'])}, {pace}"
         )
     elif activity_type == "ride":
         return (
-            f"Saved {activity.get('name', 'workout')} to {file_path.name}: "
+            f"{prefix}: "
             f"{distance_mi:.1f} mi, {_format_duration(activity['moving_time'])}"
         )
     else:
-        return (
-            f"Saved {activity.get('name', 'workout')} to {file_path.name}: "
-            f"{_format_duration(activity['moving_time'])}"
-        )
+        return f"{prefix}: {_format_duration(activity['moving_time'])}"
 
 
 # ---------------------------------------------------------------------------
@@ -850,8 +858,8 @@ async def fetch_latest_workout(activity_type: str | None = None) -> str:
     zones = await strava_client.get_activity_zones(activity["id"])
     laps = await strava_client.get_activity_laps(activity["id"])
     markdown = format_workout_markdown(activity, zones=zones, laps=laps)
-    file_path = _save_workout(activity, markdown)
-    return _build_summary_message(activity, file_path)
+    file_path, saved = _save_workout(activity, markdown)
+    return _build_summary_message(activity, file_path, saved)
 
 
 async def list_workouts_on_date(date_str: str) -> str:
@@ -904,8 +912,8 @@ async def fetch_workout_by_date(date_str: str, activity_type: str | None = None)
     zones = await strava_client.get_activity_zones(activity["id"])
     laps = await strava_client.get_activity_laps(activity["id"])
     markdown = format_workout_markdown(activity, zones=zones, laps=laps)
-    file_path = _save_workout(activity, markdown)
-    return _build_summary_message(activity, file_path)
+    file_path, saved = _save_workout(activity, markdown)
+    return _build_summary_message(activity, file_path, saved)
 
 
 def update_section(

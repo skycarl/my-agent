@@ -199,9 +199,17 @@ class TestAsyncEndpoints:
             mock_telegram_client.send_message.assert_called_once()
 
     def test_process_alert_endpoint_success(
-        self, client, auth_headers, mock_config, mock_agent_runner, mock_telegram_client
+        self,
+        client,
+        auth_headers,
+        mock_config,
+        mock_agent_runner,
+        mock_telegram_client,
+        tmp_path,
     ):
         """Test successful alert processing."""
+        import json
+
         from app.agents.alert_processor_agent import AlertDecision
 
         mock_decision = AlertDecision(
@@ -215,34 +223,35 @@ class TestAsyncEndpoints:
         )
         mock_agent_runner.run.return_value.last_agent.name = "Alert Processor"
 
+        mock_config.storage_path = str(tmp_path)
+        mock_config.email_sender_patterns = ""
+
         with patch("app.core.main_router.create_alert_processor_agent"):
-            with patch("app.core.main_router.Path") as mock_path:
-                with patch("app.core.main_router.open", create=True):
-                    with patch("app.core.main_router.json") as mock_json:
-                        mock_path.return_value.exists.return_value = False
-                        mock_path.return_value.mkdir = MagicMock()
-                        mock_json.dump = MagicMock()
+            alert_data = {
+                "uid": "alert_123",
+                "subject": "Test Alert",
+                "body": "Alert body",
+                "sender": "test@example.com",
+                "date": "2024-01-01T12:00:00Z",
+                "alert_type": "email",
+            }
 
-                        alert_data = {
-                            "uid": "alert_123",
-                            "subject": "Test Alert",
-                            "body": "Alert body",
-                            "sender": "test@example.com",
-                            "date": "2024-01-01T12:00:00Z",
-                            "alert_type": "email",
-                        }
+            response = client.post(
+                "/process_alert", json=alert_data, headers=auth_headers
+            )
 
-                        response = client.post(
-                            "/process_alert", json=alert_data, headers=auth_headers
-                        )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            assert data["agent_processing"]["success"] is True
+            assert data["agent_processing"]["primary_agent"] == "Alert Processor"
 
-                        assert response.status_code == 200
-                    data = response.json()
-                    assert data["success"] is True
-                    assert data["agent_processing"]["success"] is True
-                    assert (
-                        data["agent_processing"]["primary_agent"] == "Alert Processor"
-                    )
+            # Alert record is persisted with the structured decision fields
+            stored = json.loads((tmp_path / "commute_alerts.json").read_text())
+            assert len(stored) == 1
+            assert stored[0]["uid"] == "alert_123"
+            assert stored[0]["notify_user"] is True
+            assert stored[0]["rationale"] == "This affects commute"
 
     def test_clear_conversation_endpoint_success(self, client, auth_headers):
         """Test successful conversation clearing for a specific conversation."""
@@ -320,10 +329,10 @@ class TestAsyncEndpoints:
                 headers=auth_headers,
             )
 
-            # The endpoint returns 500 because it catches the HTTPException and sends error via Telegram
-            assert response.status_code == 500
+            # Invalid model is an intentional 400, passed through untouched
+            assert response.status_code == 400
         data = response.json()
-        assert "Invalid model" in data["message"]
+        assert "Invalid model" in data["detail"]
 
     def test_missing_input_request(self, client, auth_headers, mock_config):
         """Test request without input or messages."""
@@ -345,59 +354,24 @@ class TestAsyncArchitectureIntegration:
     @pytest.mark.asyncio
     async def test_end_to_end_user_query_flow(self):
         """Test complete flow for user query processing."""
-        with patch("app.core.agent_response_handler.config") as mock_config2:
-            with patch("app.core.telegram_client.telegram_client") as mock_client:
-                mock_config2.authorized_user_id = 12345
+        # Simulate agent response with notification JSON
+        agent_response = """
+        <json>
+        {
+            "notify_user": true,
+            "message_content": "Hello! How can I help you today?",
+            "rationale": "User greeted the bot"
+        }
+        </json>
+        """
 
-                mock_client.send_message = AsyncMock(return_value=(True, "msg_123"))
+        from app.core.agent_response_handler import AgentResponseHandler
 
-                # Simulate agent response with notification JSON
-                agent_response = """
-                <json>
-                {
-                    "notify_user": true,
-                    "message_content": "Hello! How can I help you today?",
-                    "rationale": "User greeted the bot"
-                }
-                </json>
-                """
+        (
+            should_respond,
+            message,
+        ) = await AgentResponseHandler.process_user_query_response(agent_response)
 
-                from app.core.agent_response_handler import AgentResponseHandler
-
-                (
-                    should_respond,
-                    message,
-                ) = await AgentResponseHandler.process_user_query_response(
-                    agent_response
-                )
-
-                assert should_respond is True
-                assert message == "Hello! How can I help you today?"
-                # Note: send_message is not called here because user queries defer to endpoint
-                # The endpoint handles the actual Telegram sending
-
-    @pytest.mark.asyncio
-    async def test_end_to_end_alert_processing_flow(self):
-        """Test that AlertDecision structured output works for alert processing."""
-        from app.agents.alert_processor_agent import AlertDecision
-
-        # Verify AlertDecision can be constructed and has expected fields
-        decision = AlertDecision(
-            rationale="This affects user's commute",
-            notify_user=True,
-            message_content="Service disruption on Line 2. Expect delays.",
-        )
-
-        assert decision.notify_user is True
-        assert "Service disruption" in decision.message_content
-        assert decision.rationale == "This affects user's commute"
-
-        # Verify non-relevant alert decision
-        skip_decision = AlertDecision(
-            rationale="Elevator outage, not relevant",
-            notify_user=False,
-            message_content="",
-        )
-
-        assert skip_decision.notify_user is False
-        assert skip_decision.message_content == ""
+        assert should_respond is True
+        assert message == "Hello! How can I help you today?"
+        # Note: sending via Telegram is the endpoint's responsibility

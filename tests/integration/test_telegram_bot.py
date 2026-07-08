@@ -174,7 +174,7 @@ class TestTelegramBot:
 
     @pytest.mark.asyncio
     async def test_send_message_to_backend_api_error(self):
-        """Test backend API error handling (should not raise exceptions)."""
+        """A fast non-200 from the backend raises so the handler can tell the user."""
         with patch("telegram_bot.bot.config") as mock_config:
             self._base_config(mock_config)
 
@@ -190,11 +190,31 @@ class TestTelegramBot:
                     return_value=mock_response
                 )
 
-                # Should not raise exceptions even on error (fire-and-forget)
-                await bot.send_message_to_backend("Hello", conversation_id="123")
+                # A response that fast means the backend actively rejected the
+                # request — the bot raises so handle_message replies with an error
+                with pytest.raises(RuntimeError, match="status 500"):
+                    await bot.send_message_to_backend("Hello", conversation_id="123")
 
                 # Verify the API call was made
                 mock_client.return_value.__aenter__.return_value.post.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_message_to_backend_timeout_is_fire_and_forget(self):
+        """Backend timeouts are expected (the backend keeps processing) and don't raise."""
+        import httpx
+
+        with patch("telegram_bot.bot.config") as mock_config:
+            self._base_config(mock_config)
+
+            bot = TelegramBot()
+
+            with patch("httpx.AsyncClient") as mock_client:
+                mock_client.return_value.__aenter__.return_value.post = AsyncMock(
+                    side_effect=httpx.TimeoutException("timed out")
+                )
+
+                # Should not raise — the reply arrives via Telegram later
+                await bot.send_message_to_backend("Hello", conversation_id="123")
 
     @pytest.mark.asyncio
     async def test_clear_command(self):

@@ -6,15 +6,18 @@ Also provides utilities for listing and deleting tasks from config storage.
 """
 
 import json
+import os
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 from filelock import FileLock
+from loguru import logger
 
 from app.core.settings import config
 from app.core.timezone_utils import now_local, parse_datetime_in_scheduler_tz
+from app.models.tasks import TaskConfig
 
 
 def get_config_lock_path() -> str:
@@ -22,27 +25,65 @@ def get_config_lock_path() -> str:
     return config.tasks_config_path + ".lock"
 
 
+def _validate_task(task_data: Dict[str, Any]) -> None:
+    """Validate a task dict against TaskConfig before persisting.
+
+    One invalid task in scheduled_tasks.json makes the whole file unloadable
+    (TasksConfiguration parses all tasks at once), which silently freezes
+    every scheduler reload — so nothing invalid may ever be written.
+
+    Raises ValueError with a readable message on invalid input.
+    """
+    try:
+        TaskConfig(**task_data)
+    except Exception as e:
+        raise ValueError(f"Invalid task configuration: {e}")
+
+
+def _write_storage_file(data: Dict[str, Any]) -> None:
+    """Write the tasks storage file atomically (temp file + rename)."""
+    storage_file = Path(config.tasks_config_path)
+    storage_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp_file = storage_file.with_suffix(".json.tmp")
+    tmp_file.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    os.replace(tmp_file, storage_file)
+
+
+def _read_storage_file() -> Dict[str, Any]:
+    """Internal helper to read tasks storage file, returning a dict structure."""
+    storage_file = Path(config.tasks_config_path)
+    if storage_file.exists():
+        try:
+            return json.loads(storage_file.read_text(encoding="utf-8"))
+        except Exception as e:
+            # Preserve the corrupt file for manual recovery instead of
+            # letting the next write silently replace all tasks with an
+            # empty list.
+            backup = storage_file.with_suffix(".json.corrupt")
+            logger.error(
+                f"Tasks config file is unreadable ({e}); backing it up to {backup}"
+            )
+            try:
+                os.replace(storage_file, backup)
+            except OSError as backup_err:
+                logger.error(f"Failed to back up corrupt tasks config: {backup_err}")
+            return {"version": "1.0", "tasks": []}
+    return {"version": "1.0", "tasks": []}
+
+
 def append_task_to_config(new_task_data: Dict[str, Any]) -> str:
     """
     Append a task to the scheduled_tasks.json and return the task id.
 
-    - Light validation here; strict validation happens when scheduler loads Pydantic models
+    - Validates the task against TaskConfig before persisting
     - Auto-generates id if not provided
     - Normalizes date schedule run_at into ISO-8601 string in scheduler timezone
     - Updates last_modified
     """
-    storage_file = Path(config.tasks_config_path)
-    storage_file.parent.mkdir(parents=True, exist_ok=True)
-
     with FileLock(get_config_lock_path()):
-        # Load existing
-        if storage_file.exists():
-            try:
-                data = json.loads(storage_file.read_text(encoding="utf-8"))
-            except Exception:
-                data = {"version": "1.0", "tasks": []}
-        else:
-            data = {"version": "1.0", "tasks": []}
+        data = _read_storage_file()
 
         # ID (use UUIDs to avoid collisions even after deletions)
         task_id = new_task_data.get("id") or uuid.uuid4().hex
@@ -58,30 +99,17 @@ def append_task_to_config(new_task_data: Dict[str, Any]) -> str:
             except Exception as e:
                 raise HTTPException(status_code=400, detail=str(e))
 
+        try:
+            _validate_task(new_task_data)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
         # Append and write
         data.setdefault("tasks", []).append(new_task_data)
         data["last_modified"] = now_local().isoformat()
-        storage_file.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        _write_storage_file(data)
 
         return task_id
-
-
-def _read_storage_file() -> Dict[str, Any]:
-    """Internal helper to read tasks storage file, returning a dict structure."""
-    storage_file = Path(config.tasks_config_path)
-    if storage_file.exists():
-        try:
-            return json.loads(storage_file.read_text(encoding="utf-8"))
-        except Exception:
-            return {"version": "1.0", "tasks": []}
-    return {"version": "1.0", "tasks": []}
-
-
-def load_tasks_config() -> Dict[str, Any]:
-    """Load and return the entire tasks configuration dict from storage."""
-    return _read_storage_file()
 
 
 def list_tasks_from_config(
@@ -116,18 +144,13 @@ def toggle_task_by_id(task_id: str) -> Optional[bool]:
 
     Returns the new enabled value, or None if the task was not found.
     """
-    storage_file = Path(config.tasks_config_path)
-
     with FileLock(get_config_lock_path()):
         data = _read_storage_file()
         for t in data.get("tasks", []):
             if t.get("id") == task_id:
                 t["enabled"] = not t.get("enabled", True)
                 data["last_modified"] = now_local().isoformat()
-                storage_file.parent.mkdir(parents=True, exist_ok=True)
-                storage_file.write_text(
-                    json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
-                )
+                _write_storage_file(data)
                 return t["enabled"]
         return None
 
@@ -143,31 +166,45 @@ def update_task_schedule(
     Update a task's schedule by its ID.
 
     Returns the updated schedule dict, or None if the task was not found.
+    Raises ValueError if the new schedule is invalid (e.g. cron type without
+    a valid cron expression).
     """
-    storage_file = Path(config.tasks_config_path)
-
     with FileLock(get_config_lock_path()):
         data = _read_storage_file()
         for t in data.get("tasks", []):
             if t.get("id") == task_id:
                 if schedule_type == "cron":
+                    from croniter import croniter
+
+                    if not cron_expression or not croniter.is_valid(cron_expression):
+                        raise ValueError(
+                            f"A valid cron expression is required for a cron "
+                            f"schedule (got: {cron_expression!r})"
+                        )
                     schedule = {"type": "cron", "expression": cron_expression}
                 elif schedule_type == "interval":
+                    if not interval_seconds or int(interval_seconds) < 1:
+                        raise ValueError(
+                            "interval_seconds (>= 1) is required for an interval schedule"
+                        )
                     schedule = {
                         "type": "interval",
                         "interval_seconds": int(interval_seconds),
                     }
                 elif schedule_type == "date":
+                    if not run_at:
+                        raise ValueError("run_at is required for a date schedule")
                     dt = parse_datetime_in_scheduler_tz(run_at)
                     schedule = {"type": "date", "run_at": dt.isoformat()}
                 else:
                     return None
 
+                updated_task = {**t, "schedule": schedule}
+                _validate_task(updated_task)
+
                 t["schedule"] = schedule
                 data["last_modified"] = now_local().isoformat()
-                storage_file.write_text(
-                    json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
-                )
+                _write_storage_file(data)
                 return schedule
         return None
 
@@ -178,8 +215,6 @@ def delete_task_by_id(task_id: str) -> bool:
 
     Returns True if a task was removed, False if not found.
     """
-    storage_file = Path(config.tasks_config_path)
-
     with FileLock(get_config_lock_path()):
         data = _read_storage_file()
         original_len = len(data.get("tasks", []))
@@ -189,8 +224,5 @@ def delete_task_by_id(task_id: str) -> bool:
             return False
 
         data["last_modified"] = now_local().isoformat()
-        storage_file.parent.mkdir(parents=True, exist_ok=True)
-        storage_file.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        _write_storage_file(data)
         return True

@@ -1,4 +1,4 @@
-.PHONY: test lint run run-bot pre-commit install help docker-up docker-down setup-cron
+.PHONY: test test-unit test-integration test-app test-telegram lint run run-bot pre-commit install help docker-up docker-down logs setup-cron
 
 # Default target
 help:
@@ -6,9 +6,8 @@ help:
 	@echo "  test           - Run all tests with pytest"
 	@echo "  test-unit      - Run unit tests only"
 	@echo "  test-integration - Run integration tests only"
-	@echo "  test-e2e       - Run end-to-end tests only"
 	@echo "  test-app       - Run app service unit tests"
-	@echo "  test-telegram  - Run telegram bot unit tests"
+	@echo "  test-telegram  - Run telegram bot tests"
 	@echo "  lint           - Run ruff check for linting"
 	@echo "  run            - Start the FastAPI server with reload"
 	@echo "  run-bot        - Start the Telegram bot"
@@ -26,14 +25,11 @@ test-unit:
 test-integration:
 	uv run pytest tests/integration/
 
-test-e2e:
-	uv run pytest tests/e2e/
-
 test-app:
 	uv run pytest tests/unit/app/
 
 test-telegram:
-	uv run pytest tests/unit/telegram_bot/
+	uv run pytest tests/integration/test_telegram_bot.py
 
 lint:
 	uv run ruff format && uv run ruff check
@@ -42,7 +38,7 @@ run:
 	uv run python -m uvicorn app.main:app --reload
 
 run-bot:
-	uv run python -m app.telegram.main
+	uv run python -m telegram_bot.main
 
 pre-commit:
 	uv run pre-commit run --all-files

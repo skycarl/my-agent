@@ -2,6 +2,7 @@
 
 from agents import function_tool
 
+from app.core.settings import config
 from app.core.timezone_utils import now_local
 
 
@@ -15,6 +16,6 @@ async def get_current_date() -> str:
             "current_day": now.strftime("%A"),
             "current_time": now.strftime("%H:%M"),
             "current_month_year": now.strftime("%B %Y"),
-            "timezone": "Pacific Time",
+            "timezone": config.timezone,
         }
     )
