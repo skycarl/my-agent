@@ -16,6 +16,7 @@ services:
       - .:/app/workspace
     environment:
       - STORAGE_PATH=/app/workspace/storage
+      - GARDEN_DB_PATH=/app/workspace/storage/garden_db.json
       - TERM=xterm-256color
       - FORCE_COLOR=1
 

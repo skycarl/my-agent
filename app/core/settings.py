@@ -179,6 +179,11 @@ class Config(BaseSettings):
         return f"{self.storage_path}/commute_overrides.json"
 
     @property
+    def commute_alerts_path(self) -> str:
+        """Get the commute alerts file path based on storage path."""
+        return f"{self.storage_path}/commute_alerts.json"
+
+    @property
     def workouts_path(self) -> str:
         """Get the workouts directory path based on storage path."""
         return f"{self.storage_path}/workouts"

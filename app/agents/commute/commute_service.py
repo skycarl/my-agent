@@ -14,10 +14,14 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from .parse_hours import fetch_hours_rows
+from app.core.settings import config
 from app.core.timezone_utils import now_local, parse_datetime_in_app_tz
 
 
-ALERTS_FILE = Path("storage/commute_alerts.json")
+def _alerts_path() -> Path:
+    # Derived from config (not a hardcoded relative path) so it resolves to
+    # the same file the /process_alert writer uses regardless of CWD.
+    return Path(config.commute_alerts_path)
 
 
 class AlertSummary(BaseModel):
@@ -110,11 +114,12 @@ def get_recent_alerts(
         days: Only return alerts from the last N days.
         status: Filter by alert status: "active", "resolved", or None for all.
     """
-    if not ALERTS_FILE.exists():
+    alerts_file = _alerts_path()
+    if not alerts_file.exists():
         return RecentAlertsResponse(alerts=[], total_stored=0)
 
     try:
-        with open(ALERTS_FILE, "r", encoding="utf-8") as f:
+        with open(alerts_file, "r", encoding="utf-8") as f:
             all_alerts = json.load(f)
     except (json.JSONDecodeError, FileNotFoundError):
         return RecentAlertsResponse(alerts=[], total_stored=0)
@@ -183,27 +188,40 @@ def get_recent_alerts(
 
 def cleanup_old_alerts(retention_days: int = 30) -> int:
     """Remove alerts older than retention_days. Returns count removed."""
-    if not ALERTS_FILE.exists():
+    alerts_file = _alerts_path()
+    if not alerts_file.exists():
         return 0
 
     try:
-        with open(ALERTS_FILE, "r", encoding="utf-8") as f:
+        with open(alerts_file, "r", encoding="utf-8") as f:
             alerts = json.load(f)
     except (json.JSONDecodeError, FileNotFoundError):
         return 0
 
-    cutoff = (now_local() - timedelta(days=retention_days)).isoformat()
-    # Keep alerts without a stored_date (legacy records) rather than
-    # treating the missing field as infinitely old
-    active = [a for a in alerts if "stored_date" not in a or a["stored_date"] >= cutoff]
+    cutoff = now_local() - timedelta(days=retention_days)
+
+    def _keep(alert: dict) -> bool:
+        # Keep alerts without a stored_date (legacy records) rather than
+        # treating the missing field as infinitely old
+        stored = alert.get("stored_date")
+        if not stored:
+            return True
+        try:
+            # Proper datetime comparison — lexicographic string comparison is
+            # wrong across mixed UTC offsets (e.g. +00:00 vs -07:00)
+            return parse_datetime_in_app_tz(stored) >= cutoff
+        except (ValueError, TypeError):
+            return True
+
+    active = [a for a in alerts if _keep(a)]
     removed = len(alerts) - len(active)
 
     if removed > 0:
         # Atomic write (temp file + rename) so a crash mid-write can't
         # leave a truncated file behind
-        tmp_file = ALERTS_FILE.with_suffix(".json.tmp")
+        tmp_file = alerts_file.with_suffix(".json.tmp")
         with open(tmp_file, "w", encoding="utf-8") as f:
             json.dump(active, f, indent=2, ensure_ascii=False, default=str)
-        os.replace(tmp_file, ALERTS_FILE)
+        os.replace(tmp_file, alerts_file)
 
     return removed

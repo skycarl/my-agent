@@ -9,8 +9,10 @@ from unittest.mock import patch
 from app.agents.alert_processor_agent import AlertDecision
 from app.agents.commute.commute_service import (
     AlertSummary,
+    cleanup_old_alerts,
     get_recent_alerts,
 )
+from app.core.settings import config
 from app.core.timezone_utils import now_local
 
 
@@ -106,13 +108,9 @@ class TestGetRecentAlertsStatusFilter:
                 "a2", "Route 40 cleared", status="resolved", resolved_by="a3"
             ),
         ]
-        alerts_file = self._write_alerts(tmp_path, alerts)
+        self._write_alerts(tmp_path, alerts)
 
-        with patch.object(
-            __import__("app.agents.commute.commute_service", fromlist=["ALERTS_FILE"]),
-            "ALERTS_FILE",
-            alerts_file,
-        ):
+        with patch.object(config, "storage_path", str(tmp_path)):
             result = get_recent_alerts(days=7, status=None)
             assert len(result.alerts) == 2
 
@@ -122,13 +120,9 @@ class TestGetRecentAlertsStatusFilter:
             self._make_alert("a1", "Route 40 delay", status="active"),
             self._make_alert("a2", "Route 40 cleared", status="resolved"),
         ]
-        alerts_file = self._write_alerts(tmp_path, alerts)
+        self._write_alerts(tmp_path, alerts)
 
-        with patch.object(
-            __import__("app.agents.commute.commute_service", fromlist=["ALERTS_FILE"]),
-            "ALERTS_FILE",
-            alerts_file,
-        ):
+        with patch.object(config, "storage_path", str(tmp_path)):
             result = get_recent_alerts(days=7, status="active")
             assert len(result.alerts) == 1
             assert result.alerts[0].status == "active"
@@ -142,13 +136,9 @@ class TestGetRecentAlertsStatusFilter:
                 "a2", "Route 40 cleared", status="resolved", resolved_by="a3"
             ),
         ]
-        alerts_file = self._write_alerts(tmp_path, alerts)
+        self._write_alerts(tmp_path, alerts)
 
-        with patch.object(
-            __import__("app.agents.commute.commute_service", fromlist=["ALERTS_FILE"]),
-            "ALERTS_FILE",
-            alerts_file,
-        ):
+        with patch.object(config, "storage_path", str(tmp_path)):
             result = get_recent_alerts(days=7, status="resolved")
             assert len(result.alerts) == 1
             assert result.alerts[0].status == "resolved"
@@ -171,13 +161,9 @@ class TestGetRecentAlertsStatusFilter:
             "agent_processing": {"agent_response": ""},
             # no "status" field
         }
-        alerts_file = self._write_alerts(tmp_path, [legacy_alert])
+        self._write_alerts(tmp_path, [legacy_alert])
 
-        with patch.object(
-            __import__("app.agents.commute.commute_service", fromlist=["ALERTS_FILE"]),
-            "ALERTS_FILE",
-            alerts_file,
-        ):
+        with patch.object(config, "storage_path", str(tmp_path)):
             result = get_recent_alerts(days=7, status="active")
             assert len(result.alerts) == 1
             assert result.alerts[0].status == "active"
@@ -196,13 +182,9 @@ class TestGetRecentAlertsStatusFilter:
             "Sounder delay",
             received_date=utc_date.isoformat(),
         )
-        alerts_file = self._write_alerts(tmp_path, [alert])
+        self._write_alerts(tmp_path, [alert])
 
-        with patch.object(
-            __import__("app.agents.commute.commute_service", fromlist=["ALERTS_FILE"]),
-            "ALERTS_FILE",
-            alerts_file,
-        ):
+        with patch.object(config, "storage_path", str(tmp_path)):
             result = get_recent_alerts(days=2, status=None)
             assert len(result.alerts) == 1
             assert result.alerts[0].id == "utc_alert"
@@ -222,13 +204,9 @@ class TestGetRecentAlertsStatusFilter:
             "Bus delay",
             received_date=str_date,
         )
-        alerts_file = self._write_alerts(tmp_path, [alert])
+        self._write_alerts(tmp_path, [alert])
 
-        with patch.object(
-            __import__("app.agents.commute.commute_service", fromlist=["ALERTS_FILE"]),
-            "ALERTS_FILE",
-            alerts_file,
-        ):
+        with patch.object(config, "storage_path", str(tmp_path)):
             result = get_recent_alerts(days=2, status=None)
             assert len(result.alerts) == 1
             assert result.alerts[0].id == "str_alert"
@@ -236,12 +214,104 @@ class TestGetRecentAlertsStatusFilter:
     def test_summary_includes_id(self, tmp_path):
         """AlertSummary includes the alert id field."""
         alerts = [self._make_alert("alert_42_xyz", "Test alert")]
-        alerts_file = self._write_alerts(tmp_path, alerts)
+        self._write_alerts(tmp_path, alerts)
 
-        with patch.object(
-            __import__("app.agents.commute.commute_service", fromlist=["ALERTS_FILE"]),
-            "ALERTS_FILE",
-            alerts_file,
-        ):
+        with patch.object(config, "storage_path", str(tmp_path)):
             result = get_recent_alerts(days=7)
             assert result.alerts[0].id == "alert_42_xyz"
+
+
+class TestAlertsPathResolution:
+    """Regression tests for the reader/writer path split.
+
+    The reader used a hardcoded CWD-relative path while the /process_alert
+    writer used config.storage_path — in Docker (CWD=/app,
+    STORAGE_PATH=/app/workspace/storage) they pointed at different files, so
+    freshly stored alerts were invisible to get_recent_alerts.
+    """
+
+    def _make_alert(self, uid):
+        now = now_local()
+        return {
+            "id": f"alert_1_{uid}",
+            "uid": uid,
+            "subject": "Link light rail delay",
+            "body": "test",
+            "sender": "alerts@transit.com",
+            "received_date": now.isoformat(),
+            "stored_date": now.isoformat(),
+            "alert_type": "email",
+            "notify_user": True,
+            "message_content": "Link light rail delay",
+            "status": "active",
+            "agent_processing": {"agent_response": ""},
+        }
+
+    def test_reader_uses_config_storage_path_not_cwd(self, tmp_path, monkeypatch):
+        """Alerts under config.storage_path are found even when the CWD has a
+        different (stale/empty) storage/commute_alerts.json."""
+        real_storage = tmp_path / "real_storage"
+        real_storage.mkdir()
+        with open(real_storage / "commute_alerts.json", "w") as f:
+            json.dump([self._make_alert("fresh")], f)
+
+        # Decoy: a CWD-relative storage dir with an empty alerts file, like
+        # the stale snapshot baked into the Docker image
+        cwd = tmp_path / "container_workdir"
+        (cwd / "storage").mkdir(parents=True)
+        with open(cwd / "storage" / "commute_alerts.json", "w") as f:
+            json.dump([], f)
+        monkeypatch.chdir(cwd)
+
+        with patch.object(config, "storage_path", str(real_storage)):
+            result = get_recent_alerts(days=2, status="active")
+
+        assert result.total_stored == 1
+        assert len(result.alerts) == 1
+        assert result.alerts[0].subject == "Link light rail delay"
+
+    def test_cleanup_uses_config_storage_path_not_cwd(self, tmp_path, monkeypatch):
+        """cleanup_old_alerts prunes the config-derived file, not a CWD-relative one."""
+        real_storage = tmp_path / "real_storage"
+        real_storage.mkdir()
+        old_alert = self._make_alert("old")
+        old_alert["stored_date"] = (now_local() - timedelta(days=45)).isoformat()
+        with open(real_storage / "commute_alerts.json", "w") as f:
+            json.dump([old_alert], f)
+
+        cwd = tmp_path / "container_workdir"
+        cwd.mkdir()
+        monkeypatch.chdir(cwd)
+
+        with patch.object(config, "storage_path", str(real_storage)):
+            removed = cleanup_old_alerts(retention_days=30)
+
+        assert removed == 1
+        with open(real_storage / "commute_alerts.json") as f:
+            assert json.load(f) == []
+
+
+class TestCleanupOldAlerts:
+    """Tests for cleanup_old_alerts date handling."""
+
+    def test_mixed_utc_offsets_compared_as_datetimes(self, tmp_path):
+        """A recent UTC-offset stored_date must survive cleanup even though it
+        sorts lexicographically before a local-offset cutoff string."""
+        recent_utc = (now_local() - timedelta(days=1)).astimezone(timezone.utc)
+        old_local = now_local() - timedelta(days=45)
+        alerts = [
+            {"uid": "recent_utc", "stored_date": recent_utc.isoformat()},
+            {"uid": "old_local", "stored_date": old_local.isoformat()},
+            {"uid": "legacy_no_date"},
+            {"uid": "unparseable", "stored_date": "not-a-date"},
+        ]
+        with open(tmp_path / "commute_alerts.json", "w") as f:
+            json.dump(alerts, f)
+
+        with patch.object(config, "storage_path", str(tmp_path)):
+            removed = cleanup_old_alerts(retention_days=30)
+
+        assert removed == 1
+        with open(tmp_path / "commute_alerts.json") as f:
+            remaining = {a["uid"] for a in json.load(f)}
+        assert remaining == {"recent_utc", "legacy_no_date", "unparseable"}

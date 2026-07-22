@@ -223,7 +223,7 @@ class TestAsyncEndpoints:
         )
         mock_agent_runner.run.return_value.last_agent.name = "Alert Processor"
 
-        mock_config.storage_path = str(tmp_path)
+        mock_config.commute_alerts_path = str(tmp_path / "commute_alerts.json")
         mock_config.email_sender_patterns = ""
 
         with patch("app.core.main_router.create_alert_processor_agent"):
@@ -252,6 +252,56 @@ class TestAsyncEndpoints:
             assert stored[0]["uid"] == "alert_123"
             assert stored[0]["notify_user"] is True
             assert stored[0]["rationale"] == "This affects commute"
+
+    def test_process_alert_tolerates_legacy_record_without_uid(
+        self,
+        client,
+        auth_headers,
+        mock_config,
+        mock_agent_runner,
+        mock_telegram_client,
+        tmp_path,
+    ):
+        """A stored record lacking a uid must not 500 every future alert."""
+        import json
+
+        from app.agents.alert_processor_agent import AlertDecision
+
+        alerts_file = tmp_path / "commute_alerts.json"
+        alerts_file.write_text(json.dumps([{"subject": "legacy record, no uid"}]))
+
+        mock_decision = AlertDecision(
+            rationale="Not commute relevant",
+            notify_user=False,
+            message_content="",
+        )
+        mock_agent_runner.run.return_value.final_output = mock_decision
+        mock_agent_runner.run.return_value.last_agent = MagicMock(
+            name="Alert Processor"
+        )
+        mock_agent_runner.run.return_value.last_agent.name = "Alert Processor"
+
+        mock_config.commute_alerts_path = str(alerts_file)
+        mock_config.email_sender_patterns = ""
+
+        with patch("app.core.main_router.create_alert_processor_agent"):
+            alert_data = {
+                "uid": "alert_456",
+                "subject": "New Alert",
+                "body": "Alert body",
+                "sender": "test@example.com",
+                "date": "2024-01-01T12:00:00Z",
+                "alert_type": "email",
+            }
+
+            response = client.post(
+                "/process_alert", json=alert_data, headers=auth_headers
+            )
+
+            assert response.status_code == 200
+            stored = json.loads(alerts_file.read_text())
+            assert len(stored) == 2
+            assert stored[1]["uid"] == "alert_456"
 
     def test_clear_conversation_endpoint_success(self, client, auth_headers):
         """Test successful conversation clearing for a specific conversation."""
