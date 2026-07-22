@@ -3,3 +3,6 @@
 poetry.lock
 test.db
 /media
+# Never bake live data into the image: the container must only ever see the
+# bind-mounted storage dir (STORAGE_PATH), not a stale build-time snapshot.
+/storage

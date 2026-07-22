@@ -552,9 +552,8 @@ async def process_alert(request: AlertRequest):
 
     try:
         # Load existing alerts early for dedup check
-        storage_dir = Path(config.storage_path)
-        storage_dir.mkdir(exist_ok=True)
-        alerts_file = storage_dir / "commute_alerts.json"
+        alerts_file = Path(config.commute_alerts_path)
+        alerts_file.parent.mkdir(exist_ok=True)
 
         alerts = []
         if alerts_file.exists():
@@ -565,8 +564,9 @@ async def process_alert(request: AlertRequest):
                 logger.warning(f"Error reading existing alerts file: {e}")
                 alerts = []
 
-        # UID deduplication check
-        existing_uids = {alert["uid"] for alert in alerts}
+        # UID deduplication check (.get: a single legacy record without a uid
+        # must not 500 every future alert)
+        existing_uids = {alert.get("uid") for alert in alerts}
         if request.uid in existing_uids:
             logger.info(f"Duplicate alert UID {request.uid}, skipping processing")
             return JSONResponse(
@@ -727,6 +727,9 @@ async def process_alert(request: AlertRequest):
         # If this alert resolves an earlier one, mark the original as resolved
         if decision and decision.resolves_alert_id:
             alert_record["resolves_alert_id"] = decision.resolves_alert_id
+            # A cancellation notice is not an active disruption itself —
+            # otherwise "all clear" records show up as active alerts forever
+            alert_record["status"] = "resolved"
             for existing_alert in alerts:
                 if existing_alert.get("id") == decision.resolves_alert_id:
                     existing_alert["status"] = "resolved"

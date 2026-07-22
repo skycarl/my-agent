@@ -97,7 +97,8 @@ Your job is to:
 ## Cancellation / Cleared Alerts
 Some alerts are cancellations or "cleared" notices that indicate a previous disruption has ended.
 - Look for keywords like "cleared", "cancelled", "restored", "resumed", "resolved", "back to normal", "no longer in effect", "service restored", "all clear" in the subject or body.
-- If the alert appears to be a cancellation, call `get_recent_alerts(status="active")` to find the original active alert it resolves.
+- Only treat an alert as a cancellation if it clearly states the disruption has fully ended. An update that mentions partial restoration or continuing impact (e.g. "power restored, residual delays continue") is NOT a cancellation — process it as a normal alert and leave `resolves_alert_id` empty. When uncertain, do not set `resolves_alert_id`.
+- If the alert is a cancellation, call `get_recent_alerts(days=14, status="active")` to find the original active alert it resolves (long-running disruptions can be older than the default 2-day window).
 - If you find a matching original alert, set `resolves_alert_id` to that alert's `id`.
 - For cancellation notifications: only set `notify_user=true` if the original alert had `notify_user=true` (the user was notified about the disruption, so they should know it's cleared). If the original was not notified, set `notify_user=false`.
 - If you cannot find a matching original alert, still process the cancellation normally (leave `resolves_alert_id` empty).
