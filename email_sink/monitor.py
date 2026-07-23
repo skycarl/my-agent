@@ -109,11 +109,11 @@ class EmailMonitorService:
                         continue
 
                     # Post to the configured endpoint
-                    success = await self._post_alert_to_endpoint(
+                    result = await self._post_alert_to_endpoint(
                         alert, sink_config.endpoint
                     )
 
-                    if success:
+                    if result == "success":
                         # Mark as read only if successfully processed
                         if email_client.mark_as_read(uid):
                             logger.info(
@@ -124,6 +124,14 @@ class EmailMonitorService:
                                 f"Processed alert {uid} but failed to mark it as read; "
                                 f"it will be retried next poll (server dedup applies)"
                             )
+                    elif result == "rejected":
+                        # Permanent rejection (e.g. sender not in allowlist);
+                        # mark as read so it is not retried forever
+                        logger.error(
+                            f"Alert {uid} from {alert.sender} permanently rejected "
+                            f"by server; marking as read to stop retries"
+                        )
+                        email_client.mark_as_read(uid)
                     else:
                         logger.warning(
                             f"Failed to process alert {uid}, leaving as unread"
@@ -135,7 +143,7 @@ class EmailMonitorService:
         except Exception as e:
             logger.error(f"Error processing sink config {sink_config.description}: {e}")
 
-    async def _post_alert_to_endpoint(self, alert: EmailAlert, endpoint: str) -> bool:
+    async def _post_alert_to_endpoint(self, alert: EmailAlert, endpoint: str) -> str:
         """
         Post an alert to the specified internal API endpoint.
 
@@ -144,7 +152,8 @@ class EmailMonitorService:
             endpoint: API endpoint path (e.g., "/commute_alert")
 
         Returns:
-            True if successful, False otherwise
+            "success" if accepted, "rejected" for a permanent rejection (403),
+            "retry" for transient failures worth retrying next poll
         """
         try:
             # Build the full URL - use app_url from config
@@ -179,16 +188,20 @@ class EmailMonitorService:
 
                 if response.status_code in [200, 201]:
                     logger.debug(f"Successfully posted alert to {endpoint}")
-                    return True
+                    return "success"
+                elif response.status_code == 403:
+                    # Server rejected the sender permanently; retrying won't help
+                    logger.error(f"Alert rejected by {endpoint} (403): {response.text}")
+                    return "rejected"
                 else:
                     logger.error(
                         f"Failed to post alert to {endpoint}: {response.status_code} - {response.text}"
                     )
-                    return False
+                    return "retry"
 
         except Exception as e:
             logger.error(f"Error posting alert to {endpoint}: {e}")
-            return False
+            return "retry"
 
     def start(self) -> None:
         """Start the email monitoring service."""
