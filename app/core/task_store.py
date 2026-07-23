@@ -87,6 +87,11 @@ def append_task_to_config(new_task_data: Dict[str, Any]) -> str:
 
         # ID (use UUIDs to avoid collisions even after deletions)
         task_id = new_task_data.get("id") or uuid.uuid4().hex
+        if any(t.get("id") == task_id for t in data.get("tasks", [])):
+            raise HTTPException(
+                status_code=409,
+                detail=f"A task with id '{task_id}' already exists",
+            )
         new_task_data["id"] = task_id
 
         # Normalize date schedule run_at if present
@@ -94,10 +99,17 @@ def append_task_to_config(new_task_data: Dict[str, Any]) -> str:
         if schedule.get("type") == "date" and schedule.get("run_at") is not None:
             try:
                 run_at_dt = parse_datetime_in_scheduler_tz(schedule["run_at"])
-                schedule["run_at"] = run_at_dt.isoformat()
-                new_task_data["schedule"] = schedule
             except Exception as e:
                 raise HTTPException(status_code=400, detail=str(e))
+            # A past run_at would be silently dropped by APScheduler once
+            # outside the misfire grace, leaving the task stuck forever
+            if run_at_dt <= now_local():
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"run_at must be in the future (got {run_at_dt.isoformat()})",
+                )
+            schedule["run_at"] = run_at_dt.isoformat()
+            new_task_data["schedule"] = schedule
 
         try:
             _validate_task(new_task_data)

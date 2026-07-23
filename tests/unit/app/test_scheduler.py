@@ -34,6 +34,8 @@ def test_config(tmp_path, monkeypatch):
         scheduler_enabled=True,
     )
     monkeypatch.setattr("app.core.scheduler.config", cfg)
+    # _cleanup_one_time_task uses task_store's writer and lock path
+    monkeypatch.setattr("app.core.task_store.config", cfg)
     return cfg
 
 
@@ -95,6 +97,39 @@ def _write_config(tasks_file: Path, tasks: list[dict], version="1.0"):
         json.dumps({"version": version, "tasks": tasks}, indent=2),
         encoding="utf-8",
     )
+
+
+# ===========================================================================
+# remap_cron_day_of_week tests
+# ===========================================================================
+
+
+class TestRemapCronDayOfWeek:
+    @pytest.mark.parametrize(
+        "field,expected",
+        [
+            ("0-2", "sun,mon,tue"),
+            ("1", "mon"),
+            ("*", "*"),
+            ("mon-fri", "mon-fri"),
+            # Wrap-around ranges (low > high) unwrap past the week boundary
+            ("6-0", "sat,sun"),
+            ("5-1", "fri,sat,sun,mon"),
+            ("5-1/2", "fri,sun"),
+        ],
+    )
+    def test_remap(self, field, expected):
+        from app.core.scheduler import remap_cron_day_of_week
+
+        assert remap_cron_day_of_week(field) == expected
+
+    def test_wraparound_never_empty(self):
+        """A wrap-around range must never produce an empty field."""
+        from app.core.scheduler import remap_cron_day_of_week
+
+        for low in range(7):
+            for high in range(7):
+                assert remap_cron_day_of_week(f"{low}-{high}") != ""
 
 
 # ===========================================================================
@@ -374,3 +409,97 @@ class TestReloadConfiguration:
 
         scheduler_service.reload_configuration()
         assert scheduler_service.config_file_hash is not None
+
+
+# ===========================================================================
+# start tests
+# ===========================================================================
+
+
+class TestStart:
+    def test_start_despite_bad_initial_config(self, scheduler_service, tasks_file):
+        """A corrupt config at boot must not prevent the scheduler starting."""
+        tasks_file.parent.mkdir(parents=True, exist_ok=True)
+        tasks_file.write_text("not json", encoding="utf-8")
+
+        scheduler_service.start()
+
+        scheduler_service.scheduler.start.assert_called_once()
+        assert scheduler_service.running is True
+
+
+# ===========================================================================
+# _cleanup_one_time_task tests
+# ===========================================================================
+
+
+def _date_task_snapshot(task_id="t1", run_at_str="2030-01-01T12:00:00-08:00"):
+    """Snapshot TaskConfig as captured at schedule time for a date task."""
+    from datetime import datetime
+
+    return _make_task_config(
+        task_id=task_id,
+        schedule_type="date",
+        expression=None,
+        run_at=datetime.fromisoformat(run_at_str),
+    )
+
+
+def _date_task_dict(task_id="t1", run_at_str="2030-01-01T12:00:00-08:00"):
+    return {
+        "id": task_id,
+        "name": "Test",
+        "type": "api_call",
+        "enabled": True,
+        "schedule": {"type": "date", "run_at": run_at_str},
+        "api_call": {
+            "endpoint": "/agent_response",
+            "method": "POST",
+            "payload": {"input": "test"},
+            "timeout": 120,
+        },
+    }
+
+
+class TestCleanupOneTimeTask:
+    def test_removes_unchanged_date_task(self, scheduler_service, tasks_file):
+        """A still-unchanged date task is removed after execution."""
+        _write_config(tasks_file, [_date_task_dict()])
+
+        scheduler_service._cleanup_one_time_task(_date_task_snapshot())
+
+        data = json.loads(tasks_file.read_text())
+        assert data["tasks"] == []
+
+    def test_edited_to_cron_is_preserved(self, scheduler_service, tasks_file):
+        """A task edited to cron while execution was in flight is kept."""
+        edited = _date_task_dict()
+        edited["schedule"] = {"type": "cron", "expression": "0 7 * * *"}
+        _write_config(tasks_file, [edited])
+
+        scheduler_service._cleanup_one_time_task(_date_task_snapshot())
+
+        data = json.loads(tasks_file.read_text())
+        assert len(data["tasks"]) == 1
+        assert data["tasks"][0]["schedule"]["type"] == "cron"
+        assert data["tasks"][0]["enabled"] is True
+
+    def test_edited_run_at_is_preserved(self, scheduler_service, tasks_file):
+        """A task rescheduled to a new run_at is kept."""
+        _write_config(
+            tasks_file, [_date_task_dict(run_at_str="2030-06-01T12:00:00-07:00")]
+        )
+
+        scheduler_service._cleanup_one_time_task(_date_task_snapshot())
+
+        data = json.loads(tasks_file.read_text())
+        assert len(data["tasks"]) == 1
+
+    def test_missing_task_is_noop(self, scheduler_service, tasks_file):
+        """Cleanup of an already-deleted task does nothing."""
+        _write_config(tasks_file, [])
+
+        scheduler_service._cleanup_one_time_task(_date_task_snapshot())
+
+        data = json.loads(tasks_file.read_text())
+        assert data["tasks"] == []

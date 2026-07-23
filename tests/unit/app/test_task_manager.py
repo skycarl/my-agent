@@ -269,6 +269,36 @@ class TestExecuteTask:
         assert result.success is False
 
     @pytest.mark.asyncio
+    async def test_non_2xx_populates_error_message(self, task_manager_instance):
+        """A non-2xx API result records the status and response in error_message."""
+        task = _make_api_task(max_retries=0, retry_delay=0)
+
+        with patch.object(
+            task_manager_instance,
+            "_execute_api_call",
+            new_callable=AsyncMock,
+            return_value=(
+                False,
+                {
+                    "status_code": 500,
+                    "response": {"detail": "server error"},
+                    "error": "HTTP 500",
+                },
+            ),
+        ):
+            with patch.object(
+                task_manager_instance,
+                "_notify_error_via_endpoint",
+                new_callable=AsyncMock,
+            ):
+                result = await task_manager_instance.execute_task(task)
+
+        assert result.success is False
+        assert result.error_message is not None
+        assert "500" in result.error_message
+        assert "server error" in result.error_message
+
+    @pytest.mark.asyncio
     async def test_error_notification_sent_on_failure(self, task_manager_instance):
         """On failure the manager calls _notify_error_via_endpoint."""
         task = _make_api_task(max_retries=0, retry_delay=0)

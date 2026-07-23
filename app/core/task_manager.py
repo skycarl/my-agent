@@ -129,15 +129,22 @@ class TaskManager:
                 logger.info(f"Task '{task.id}' completed successfully")
             else:
                 logger.warning(f"Task '{task.id}' completed with errors")
+                # Record why (status + response snippet) so stored results and
+                # run_scheduled_task_now don't report "unknown error"
+                if not result.error_message:
+                    if isinstance(response_data, dict):
+                        status = response_data.get("status_code")
+                        detail = response_data.get("response") or response_data.get(
+                            "error"
+                        )
+                        result.error_message = (
+                            f"HTTP {status} - {detail}" if status else str(detail)
+                        )
+                    else:
+                        result.error_message = str(response_data)
                 # Notify on non-exception failures as well (e.g., non-2xx HTTP)
                 try:
-                    error_summary = result.error_message or (
-                        f"HTTP {response_data.get('status_code')} - "
-                        f"{response_data.get('error') or response_data.get('response')}"
-                        if isinstance(response_data, dict)
-                        else str(response_data)
-                    )
-                    await self._notify_error_via_endpoint(task, str(error_summary))
+                    await self._notify_error_via_endpoint(task, result.error_message)
                 except Exception as telegram_error:
                     logger.error(
                         f"Failed to send error notification (non-exception failure): {telegram_error}"

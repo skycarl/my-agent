@@ -5,6 +5,7 @@ Task scheduler service with APScheduler integration and hot reload functionality
 import json
 import hashlib
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -17,7 +18,7 @@ from loguru import logger
 
 from app.core.settings import config
 from app.core.task_manager import task_manager
-from app.core.task_store import get_config_lock_path
+from app.core.task_store import get_config_lock_path, _write_storage_file
 from app.models.tasks import TaskConfig, TasksConfiguration
 from app.core.timezone_utils import (
     now_local_isoformat,
@@ -51,6 +52,10 @@ def remap_cron_day_of_week(field: str) -> str:
         elif "-" in expr:
             low_str, high_str = expr.split("-", 1)
             low, high = int(low_str), int(high_str)
+            if low > high:
+                # Wrap-around range (e.g. 6-0 = Sat-Sun): unwrap past the
+                # week boundary; names[day % 7] folds it back
+                high += 7
         else:
             low = high = int(expr)
         out.extend(names[day % 7] for day in range(low, high + 1, step))
@@ -285,14 +290,20 @@ class SchedulerService:
             # For one-time tasks, perform cleanup after execution attempt
             try:
                 if task.schedule.type == "date":
-                    self._cleanup_one_time_task(task.id)
+                    self._cleanup_one_time_task(task)
             except Exception as cleanup_err:
                 logger.error(
                     f"Failed to cleanup one-time task {task.id}: {cleanup_err}"
                 )
 
-    def _cleanup_one_time_task(self, task_id: str) -> None:
-        """Cleanup a one-time task from the config file after it runs."""
+    def _cleanup_one_time_task(self, task: TaskConfig) -> None:
+        """Cleanup a one-time task from the config file after it runs.
+
+        `task` is the snapshot captured at schedule time. The stored task is
+        re-checked before touching it: if the user edited it (e.g. to cron,
+        or to a new run_at) while this execution was in flight, the edit is
+        kept instead of being deleted/disabled.
+        """
         config_file = self._get_config_file_path()
         if not config_file.exists():
             return
@@ -302,21 +313,33 @@ class SchedulerService:
                 with open(config_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
+                current = next(
+                    (t for t in data.get("tasks", []) if t.get("id") == task.id),
+                    None,
+                )
+                if current is None:
+                    return
+                schedule = current.get("schedule", {}) or {}
+                if schedule.get("type") != "date" or not self._same_run_at(
+                    schedule.get("run_at"), task.schedule.run_at
+                ):
+                    logger.info(
+                        f"Task {task.id} was edited since scheduling; skipping cleanup"
+                    )
+                    return
+
                 original_count = len(data.get("tasks", []))
                 if config.one_time_task_cleanup_mode == "remove":
                     data["tasks"] = [
-                        t for t in data.get("tasks", []) if t.get("id") != task_id
+                        t for t in data.get("tasks", []) if t.get("id") != task.id
                     ]
                 else:
-                    for t in data.get("tasks", []):
-                        if t.get("id") == task_id:
-                            t["enabled"] = False
+                    current["enabled"] = False
 
                 # Update last_modified
                 data["last_modified"] = now_local_isoformat()
 
-                with open(config_file, "w", encoding="utf-8") as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
+                _write_storage_file(data)
 
             # Reload scheduler to reflect changes
             if (
@@ -326,7 +349,18 @@ class SchedulerService:
                 self.reload_configuration()
 
         except Exception as e:
-            logger.error(f"Error cleaning up one-time task {task_id}: {e}")
+            logger.error(f"Error cleaning up one-time task {task.id}: {e}")
+
+    @staticmethod
+    def _same_run_at(stored_run_at, snapshot_run_at) -> bool:
+        """Compare a stored ISO run_at string with the snapshot's datetime."""
+        if not stored_run_at or snapshot_run_at is None:
+            return True  # nothing to compare against; don't block cleanup
+        try:
+            stored = ensure_timezone(datetime.fromisoformat(str(stored_run_at)))
+            return stored == ensure_timezone(snapshot_run_at)
+        except ValueError:
+            return False
 
     def reload_configuration(self) -> bool:
         """Reload task configuration and reschedule tasks."""
@@ -384,12 +418,14 @@ class SchedulerService:
         logger.info("Starting scheduler service...")
 
         try:
-            # Load initial configuration
+            # Load initial configuration. Start the scheduler even if this
+            # fails (e.g. corrupt config file) so later successful reloads
+            # actually run jobs.
             if not self.reload_configuration():
                 logger.error(
-                    "Failed to load initial configuration, scheduler not started"
+                    "Failed to load initial configuration; starting scheduler "
+                    "anyway so a later reload can recover"
                 )
-                return
 
             # Schedule periodic configuration reload check
             self.scheduler.add_job(

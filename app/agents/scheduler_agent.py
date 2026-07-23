@@ -90,7 +90,10 @@ async def schedule_task(
                 "parse_mode": "HTML",
             }
         else:
-            payload: dict = {"input": instruction} if instruction else {}
+            # An empty instruction would make every fire 400 on /agent_response
+            if not instruction.strip():
+                return "Error: instruction (what the agent should do) is required for agent mode"
+            payload: dict = {"input": instruction}
             # Carry the conversation_id so the fired call replies to the right chat.
             if conversation_id is not None:
                 payload["conversation_id"] = conversation_id

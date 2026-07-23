@@ -114,7 +114,7 @@ class TestAppendTask:
         task = _make_task(
             schedule_type="date",
             expression=None,
-            run_at="2026-09-01T09:00:00",
+            run_at="2030-09-01T09:00:00",
         )
         task_id = append_task_to_config(task)
 
@@ -122,7 +122,7 @@ class TestAppendTask:
         stored = data["tasks"][0]
         assert stored["id"] == task_id
         # run_at should have been parsed and serialized back
-        assert "2026-09-01" in stored["schedule"]["run_at"]
+        assert "2030-09-01" in stored["schedule"]["run_at"]
 
     def test_auto_generates_uuid(self, test_config):
         """When no id is provided, append generates one."""
@@ -170,6 +170,34 @@ class TestAppendTask:
         data = json.loads(tasks_file.read_text())
         assert len(data["tasks"]) == 1
         assert data["tasks"][0]["id"] == task_id
+
+    def test_past_run_at_rejected(self, test_config, tasks_file):
+        """A date task with run_at in the past is rejected with a 400."""
+        from fastapi import HTTPException
+
+        task = _make_task(
+            schedule_type="date",
+            expression=None,
+            run_at="2020-01-01T09:00:00",
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            append_task_to_config(task)
+
+        assert exc_info.value.status_code == 400
+        assert "future" in exc_info.value.detail
+        assert not tasks_file.exists()
+
+    def test_duplicate_explicit_id_rejected(self, test_config, tasks_file):
+        """An explicit id that already exists is rejected with a 409."""
+        from fastapi import HTTPException
+
+        append_task_to_config(_make_task(name="first", task_id="dup-id"))
+        with pytest.raises(HTTPException) as exc_info:
+            append_task_to_config(_make_task(name="second", task_id="dup-id"))
+
+        assert exc_info.value.status_code == 409
+        data = json.loads(tasks_file.read_text())
+        assert len(data["tasks"]) == 1
 
     def test_notify_mode_task_persists(self, test_config, tasks_file):
         """A notify-mode task is stored with its notification config."""
