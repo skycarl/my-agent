@@ -303,6 +303,65 @@ class TestAsyncEndpoints:
             assert len(stored) == 2
             assert stored[1]["uid"] == "alert_456"
 
+    def test_process_alert_race_duplicate_not_stored_twice(
+        self,
+        client,
+        auth_headers,
+        mock_config,
+        mock_agent_runner,
+        mock_telegram_client,
+        tmp_path,
+    ):
+        """If a concurrent request stores the same UID during the agent run,
+        the loser of the race skips the store and returns a duplicate response."""
+        import json
+
+        from app.agents.alert_processor_agent import AlertDecision
+
+        alerts_file = tmp_path / "commute_alerts.json"
+        mock_config.commute_alerts_path = str(alerts_file)
+        mock_config.email_sender_patterns = ""
+
+        async def run_side_effect(*args, **kwargs):
+            # Simulate another request winning the race mid-run
+            alerts_file.write_text(
+                json.dumps([{"uid": "alert_race", "subject": "stored by winner"}])
+            )
+            result = MagicMock()
+            result.final_output = AlertDecision(
+                rationale="r", notify_user=False, message_content=""
+            )
+            result.last_agent.name = "Alert Processor"
+            return result
+
+        mock_agent_runner.run = AsyncMock(side_effect=run_side_effect)
+
+        with patch("app.core.main_router.create_alert_processor_agent"):
+            alert_data = {
+                "uid": "alert_race",
+                "subject": "Test Alert",
+                "body": "Alert body",
+                "sender": "test@example.com",
+                "date": "2024-01-01T12:00:00Z",
+                "alert_type": "email",
+            }
+
+            response = client.post(
+                "/process_alert", json=alert_data, headers=auth_headers
+            )
+
+            assert response.status_code == 200
+            assert "Duplicate alert" in response.json()["message"]
+            stored = json.loads(alerts_file.read_text())
+            assert len(stored) == 1  # only the winner's record
+
+    def test_conversation_locks_are_per_conversation(self):
+        """Same conversation reuses one lock; different conversations get their own."""
+        from app.core.main_router import _get_conversation_lock
+
+        assert _get_conversation_lock("conv_1") is _get_conversation_lock("conv_1")
+        assert _get_conversation_lock("conv_1") is not _get_conversation_lock("conv_2")
+
     def test_clear_conversation_endpoint_success(self, client, auth_headers):
         """Test successful conversation clearing for a specific conversation."""
         with patch(

@@ -55,9 +55,10 @@ def test_healthcheck_endpoint():
     assert response.json() == {"status": "healthy"}
 
 
-def test_models_endpoint():
-    """Test the models endpoint."""
-    response = client.get("/models")
+def test_models_endpoint(monkeypatch):
+    """Test the models endpoint with a valid token."""
+    monkeypatch.setattr(config, "x_token", "test-token")
+    response = client.get("/models", headers={"X-Token": "test-token"})
     assert response.status_code == 200
     data = response.json()
     assert "models" in data
@@ -65,3 +66,13 @@ def test_models_endpoint():
     assert data["default_model"] == "gpt-5.5"
     assert isinstance(data["models"], list)
     assert len(data["models"]) > 0
+
+
+def test_models_endpoint_requires_token(monkeypatch):
+    """The models endpoint rejects missing or invalid tokens."""
+    monkeypatch.setattr(config, "x_token", "test-token")
+
+    # Missing header -> FastAPI validation error
+    assert client.get("/models").status_code == 422
+    # Wrong token -> 401
+    assert client.get("/models", headers={"X-Token": "wrong-token"}).status_code == 401
