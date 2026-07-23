@@ -76,6 +76,9 @@ class TestTelegramBot:
     @pytest.fixture(autouse=True)
     def _allowlist(self):
         """Treat user 123 as authorized for all bot tests."""
+        import telegram_bot.bot as bot_module
+
+        bot_module._last_unauthorized_notify.clear()
         with patch(
             "telegram_bot.bot.access_control.is_authorized",
             side_effect=lambda user_id, chat_id, chat_type: user_id == 123,
@@ -199,8 +202,8 @@ class TestTelegramBot:
                 mock_client.return_value.__aenter__.return_value.post.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_send_message_to_backend_timeout_is_fire_and_forget(self):
-        """Backend timeouts are expected (the backend keeps processing) and don't raise."""
+    async def test_send_message_to_backend_read_timeout_is_fire_and_forget(self):
+        """Read timeouts are expected (the backend keeps processing) and don't raise."""
         import httpx
 
         with patch("telegram_bot.bot.config") as mock_config:
@@ -210,11 +213,35 @@ class TestTelegramBot:
 
             with patch("httpx.AsyncClient") as mock_client:
                 mock_client.return_value.__aenter__.return_value.post = AsyncMock(
-                    side_effect=httpx.TimeoutException("timed out")
+                    side_effect=httpx.ReadTimeout("timed out")
                 )
 
                 # Should not raise — the reply arrives via Telegram later
                 await bot.send_message_to_backend("Hello", conversation_id="123")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "exception_type",
+        ["ConnectTimeout", "WriteTimeout", "ConnectError"],
+    )
+    async def test_send_message_to_backend_unreachable_raises(self, exception_type):
+        """Timeouts that mean the request never arrived raise like ConnectError."""
+        import httpx
+
+        exception_class = getattr(httpx, exception_type)
+
+        with patch("telegram_bot.bot.config") as mock_config:
+            self._base_config(mock_config)
+
+            bot = TelegramBot()
+
+            with patch("httpx.AsyncClient") as mock_client:
+                mock_client.return_value.__aenter__.return_value.post = AsyncMock(
+                    side_effect=exception_class("backend unreachable")
+                )
+
+                with pytest.raises(exception_class):
+                    await bot.send_message_to_backend("Hello", conversation_id="123")
 
     @pytest.mark.asyncio
     async def test_clear_command(self):
@@ -275,7 +302,7 @@ class TestTelegramBot:
                 await bot.set_model_command(mock_update, mock_context)
 
                 # Should not change the model directly, just show interface
-                assert bot.selected_model == "gpt-5"  # Default unchanged
+                assert bot._get_model(123) == "gpt-5"  # Default unchanged
                 mock_update.message.reply_text.assert_called_once()
                 call_args = mock_update.message.reply_text.call_args[0][0]
                 assert "Current model" in call_args
@@ -305,7 +332,7 @@ class TestTelegramBot:
                 await bot.set_model_command(mock_update, mock_context)
 
                 # Should not change the model
-                assert bot.selected_model == "gpt-5"  # Default
+                assert bot._get_model(123) == "gpt-5"  # Default
                 mock_update.message.reply_text.assert_called_once()
                 call_args = mock_update.message.reply_text.call_args[0][0]
                 assert "Failed to fetch available models" in call_args
@@ -353,6 +380,76 @@ class TestTelegramBot:
 
                 models = await bot._get_available_models()
                 assert models == []
+
+    @pytest.mark.asyncio
+    async def test_model_callback_sets_model_per_chat(self):
+        """Selecting a model in one chat must not change other chats' models."""
+        with patch("telegram_bot.bot.config") as mock_config:
+            self._base_config(mock_config)
+
+            bot = TelegramBot()
+
+            mock_update = make_update(chat_id=456)
+            mock_update.callback_query.from_user.id = 123
+            mock_update.callback_query.data = "model_gpt-5-mini"
+            mock_update.callback_query.answer = AsyncMock()
+            mock_update.callback_query.edit_message_text = AsyncMock()
+
+            with patch.object(
+                bot,
+                "_get_available_models",
+                AsyncMock(return_value=["gpt-5-mini", "gpt-5"]),
+            ):
+                await bot.model_callback_handler(mock_update, Mock())
+
+            assert bot._get_model(456) == "gpt-5-mini"
+            # Other chats (e.g. the owner's private chat) keep the default
+            assert bot._get_model(999) == "gpt-5"
+
+    @pytest.mark.asyncio
+    async def test_send_message_to_backend_uses_per_chat_model(self):
+        """The payload model comes from the chat's selection, not a global."""
+        with patch("telegram_bot.bot.config") as mock_config:
+            self._base_config(mock_config)
+
+            bot = TelegramBot()
+            bot.selected_models["456"] = "gpt-5-mini"
+
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"success": True}
+
+            with patch("httpx.AsyncClient") as mock_client:
+                mock_post = AsyncMock(return_value=mock_response)
+                mock_client.return_value.__aenter__.return_value.post = mock_post
+
+                await bot.send_message_to_backend("Hello", conversation_id="456")
+                assert mock_post.call_args.kwargs["json"]["model"] == "gpt-5-mini"
+
+                await bot.send_message_to_backend("Hello", conversation_id="123")
+                assert mock_post.call_args.kwargs["json"]["model"] == "gpt-5"
+
+    @pytest.mark.asyncio
+    async def test_unauthorized_notifications_throttled_per_user(self):
+        """Repeated unauthorized attempts DM the owner at most once per user."""
+        with patch("telegram_bot.bot.config") as mock_config:
+            self._base_config(mock_config)
+
+            bot = TelegramBot()
+            bot.application = Mock()
+            bot.application.bot.send_message = AsyncMock()
+
+            mock_update = make_update(user_id=999, username="hacker", text="spam")
+
+            for _ in range(3):
+                await bot._log_unauthorized_access(mock_update, "message")
+
+            assert bot.application.bot.send_message.await_count == 1
+
+            # A different offender still triggers a notification
+            other_update = make_update(user_id=888, username="other", text="spam")
+            await bot._log_unauthorized_access(other_update, "message")
+            assert bot.application.bot.send_message.await_count == 2
 
     @pytest.mark.asyncio
     async def test_version_command_with_env_vars(self):
