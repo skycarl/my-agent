@@ -52,6 +52,33 @@ class TestTokenRefresh:
         token = await strava_client.get_access_token()
         assert token == "cached_token"
 
+    @pytest.mark.asyncio
+    async def test_get_access_token_refreshes_within_expiry_margin(self):
+        """A token expiring within the safety margin should be refreshed early."""
+        strava_client._access_token = "stale_token"
+        strava_client._token_expires_at = time.time() + 30  # inside 60s margin
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "access_token": "new_token_456",
+            "expires_at": time.time() + 3600,
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch(
+            "app.agents.workout.strava_client.httpx.AsyncClient",
+            return_value=mock_client,
+        ):
+            token = await strava_client.get_access_token()
+
+        assert token == "new_token_456"
+        mock_client.post.assert_called_once()
+
 
 class TestGetLatestActivity:
     @pytest.mark.asyncio
@@ -210,6 +237,41 @@ class TestListActivitiesOnDate:
             )
 
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_list_activities_on_date_dst_fall_back_covers_full_day(self):
+        """On a DST fall-back day the query window must span the full 25 hours."""
+        import pytz
+        from datetime import datetime
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = []
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "app.agents.workout.strava_client.httpx.AsyncClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "app.agents.workout.strava_client.get_access_token",
+                return_value="token",
+            ),
+            patch(
+                "app.agents.workout.strava_client.get_local_timezone",
+                return_value=pytz.timezone("America/Los_Angeles"),
+            ),
+        ):
+            # 2025-11-02: US DST fall-back — the day is 25 hours long
+            await strava_client.list_activities_on_date(datetime(2025, 11, 2))
+
+        params = mock_client.get.call_args.kwargs["params"]
+        assert params["before"] - params["after"] == 25 * 3600 - 1
 
 
 class TestGetActivityZones:

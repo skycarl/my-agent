@@ -1,6 +1,9 @@
 """Tests for the workout service."""
 
+from datetime import datetime
+
 import pytest
+import pytz
 from unittest.mock import patch, AsyncMock
 
 from app.core.settings import Config
@@ -13,6 +16,9 @@ from app.agents.workout.workout_service import (
     list_workouts_on_date,
     _slugify,
     _format_duration,
+    _parse_date,
+    _save_workout,
+    _select_matching,
     _speed_to_pace,
     _celsius_to_fahrenheit,
 )
@@ -207,6 +213,65 @@ class TestHelpers:
         assert _celsius_to_fahrenheit(0) == 32
         assert _celsius_to_fahrenheit(100) == 212
         assert _celsius_to_fahrenheit(8) == 46
+
+
+def _fixed_now(year: int, month: int, day: int):
+    return pytz.timezone("America/Los_Angeles").localize(
+        datetime(year, month, day, 12, 0)
+    )
+
+
+class TestParseDate:
+    def test_month_day_past_uses_current_year(self):
+        with patch(
+            "app.agents.workout.workout_service.now_local",
+            return_value=_fixed_now(2026, 7, 23),
+        ):
+            result = _parse_date("March 19")
+        assert (result.year, result.month, result.day) == (2026, 3, 19)
+
+    def test_month_day_future_assumes_previous_year(self):
+        with patch(
+            "app.agents.workout.workout_service.now_local",
+            return_value=_fixed_now(2026, 1, 10),
+        ):
+            result = _parse_date("December 15")
+        assert (result.year, result.month, result.day) == (2025, 12, 15)
+
+    def test_february_29_parses_in_leap_year(self):
+        with patch(
+            "app.agents.workout.workout_service.now_local",
+            return_value=_fixed_now(2024, 7, 1),
+        ):
+            result = _parse_date("February 29")
+        assert (result.year, result.month, result.day) == (2024, 2, 29)
+
+    def test_unparseable_raises(self):
+        with patch(
+            "app.agents.workout.workout_service.now_local",
+            return_value=_fixed_now(2026, 7, 23),
+        ):
+            with pytest.raises(ValueError, match="Could not parse date"):
+                _parse_date("sometime last week")
+
+
+class TestSelectMatching:
+    WALK = {"id": 1, "name": "Post-Run Walk", "type": "Walk", "sport_type": "Walk"}
+    RUN = {"id": 2, "name": "Morning Run", "type": "Run", "sport_type": "Run"}
+
+    def test_type_match_beats_name_substring(self):
+        """'run' should pick the Run, not a Walk whose name mentions 'run'."""
+        result = _select_matching([self.WALK, self.RUN], lambda a: a, "run")
+        assert result == [self.RUN]
+
+    def test_name_substring_used_when_no_type_match(self):
+        afternoon = {**self.RUN, "id": 3, "name": "Afternoon Run"}
+        result = _select_matching([self.RUN, afternoon], lambda a: a, "morning")
+        assert result == [self.RUN]
+
+    def test_exact_name_wins(self):
+        result = _select_matching([self.WALK, self.RUN], lambda a: a, "morning run")
+        assert result == [self.RUN]
 
 
 class TestFormatWorkoutMarkdown:
@@ -568,6 +633,46 @@ class TestFetchLatestWorkout:
         assert "Morning Run" in result
 
     @pytest.mark.asyncio
+    async def test_fetch_latest_workout_by_type_skips_name_substring_match(
+        self, test_config, tmp_path
+    ):
+        """A newer Walk named 'Post-Run Walk' must not shadow the actual run."""
+        walk = {
+            **SAMPLE_RUN_ACTIVITY,
+            "id": 999,
+            "name": "Post-Run Walk",
+            "type": "Walk",
+            "sport_type": "Walk",
+        }
+        get_activity = AsyncMock(return_value=SAMPLE_RUN_ACTIVITY)
+        with (
+            patch(
+                "app.agents.workout.workout_service.strava_client.list_recent_activities",
+                new_callable=AsyncMock,
+                return_value=[walk, SAMPLE_RUN_ACTIVITY],
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity",
+                new=get_activity,
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity_zones",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.agents.workout.workout_service.strava_client.get_activity_laps",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch("app.agents.workout.workout_service.config", test_config),
+        ):
+            result = await fetch_latest_workout(activity_type="run")
+
+        assert "Morning Run" in result
+        get_activity.assert_awaited_once_with(SAMPLE_RUN_ACTIVITY["id"])
+
+    @pytest.mark.asyncio
     async def test_fetch_latest_workout_by_type_no_match(self, test_config):
         """activity_type with no recent match should report none found."""
         with (
@@ -746,6 +851,45 @@ class TestFetchWorkoutByDate:
         assert "Multiple activities" in ambiguous
         assert "Saved" in resolved
         assert "Morning Run" in resolved
+
+
+class TestSaveWorkout:
+    def test_same_day_same_name_different_activity_gets_suffix(self, test_config):
+        """Two same-day activities sharing a name must both be persisted."""
+        first = SAMPLE_RUN_ACTIVITY
+        second = {
+            **SAMPLE_RUN_ACTIVITY,
+            "id": 22222,
+            "start_date_local": "2026-03-19T18:00:00",
+        }
+        with patch("app.agents.workout.workout_service.config", test_config):
+            path1, saved1 = _save_workout(first, format_workout_markdown(first))
+            path2, saved2 = _save_workout(second, format_workout_markdown(second))
+            # Re-saving either activity keeps its own existing file
+            repath1, resaved1 = _save_workout(first, format_workout_markdown(first))
+            repath2, resaved2 = _save_workout(second, format_workout_markdown(second))
+
+        assert saved1 is True and saved2 is True
+        assert path1.name == "2026-03-19_morning-run.md"
+        assert path2.name == "2026-03-19_morning-run-2.md"
+        assert (repath1, resaved1) == (path1, False)
+        assert (repath2, resaved2) == (path2, False)
+
+    def test_legacy_file_without_id_is_kept(self, test_config, tmp_path):
+        """An existing file with no recorded id is treated as the same activity."""
+        workout_dir = tmp_path / "workouts"
+        workout_dir.mkdir()
+        legacy = workout_dir / "2026-03-19_morning-run.md"
+        legacy.write_text("# Morning Run\n**Type:** Run\n\n## Summary\n")
+
+        with patch("app.agents.workout.workout_service.config", test_config):
+            path, saved = _save_workout(
+                SAMPLE_RUN_ACTIVITY, format_workout_markdown(SAMPLE_RUN_ACTIVITY)
+            )
+
+        assert path == legacy
+        assert saved is False
+        assert "## Summary" in legacy.read_text()
 
 
 class TestListWorkoutsOnDate:

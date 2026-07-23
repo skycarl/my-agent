@@ -129,6 +129,28 @@ class TestAddCommuteOverride:
                 date="2026-03-05", override_type="invalid", note="nope"
             )
 
+    def test_add_commute_override_invalid_date(self, test_config, tmp_path):
+        """A malformed date (e.g. 'July 25') must be rejected, not stored."""
+        Path(test_config.commute_overrides_path).write_text("[]", encoding="utf-8")
+        with pytest.raises(ValueError, match="Invalid date"):
+            add_commute_override(
+                date="July 25", override_type="remote_day", note="bad date"
+            )
+        # Nothing persisted
+        raw = json.loads(Path(test_config.commute_overrides_path).read_text())
+        assert raw == []
+
+    def test_add_commute_override_invalid_expires_after(self, test_config, tmp_path):
+        """A malformed expires_after must be rejected (it would never expire)."""
+        Path(test_config.commute_overrides_path).write_text("[]", encoding="utf-8")
+        with pytest.raises(ValueError, match="Invalid expires_after"):
+            add_commute_override(
+                date="2026-03-05",
+                override_type="remote_day",
+                note="bad expiry",
+                expires_after="soon",
+            )
+
 
 class TestRemoveCommuteOverride:
     def test_remove_commute_override(self, test_config, tmp_path):
