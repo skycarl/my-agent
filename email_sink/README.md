@@ -105,7 +105,7 @@ EMAIL_SENDER_PATTERNS=alerts@,@weatherservice.gov,emergency@,notifications@trans
   - `notifications@` matches `notifications@any-domain.com`
 
 - **Multiple configs**: Each pattern creates a separate monitoring configuration
-- **Same endpoint**: Currently all patterns route to `/commute_alert`
+- **Same endpoint**: Currently all patterns route to `/process_alert`
 
 ### Environment Variables
 

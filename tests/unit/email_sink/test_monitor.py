@@ -162,7 +162,7 @@ class TestEmailMonitorService:
         )
 
         service = EmailMonitorService()
-        await service._process_sink_config(mock_email_client, sink_config)
+        await service._process_sink_config(mock_email_client, sink_config, set())
 
         mock_email_client.get_unread_messages_from_sender.assert_called_once_with(
             "test@example.com"
@@ -202,7 +202,9 @@ class TestEmailMonitorService:
                 new_callable=AsyncMock,
                 return_value="success",
             ) as mock_post:
-                await service._process_sink_config(mock_email_client, sink_config)
+                await service._process_sink_config(
+                    mock_email_client, sink_config, set()
+                )
 
                 # Should parse and post both messages
                 assert mock_parser.parse_raw_message.call_count == 2
@@ -230,7 +232,9 @@ class TestEmailMonitorService:
             with patch.object(
                 service, "_post_alert_to_endpoint", new_callable=AsyncMock
             ) as mock_post:
-                await service._process_sink_config(mock_email_client, sink_config)
+                await service._process_sink_config(
+                    mock_email_client, sink_config, set()
+                )
 
                 # Should not post or mark as read when parsing fails
                 mock_post.assert_not_called()
@@ -269,7 +273,9 @@ class TestEmailMonitorService:
                 new_callable=AsyncMock,
                 return_value="rejected",
             ):
-                await service._process_sink_config(mock_email_client, sink_config)
+                await service._process_sink_config(
+                    mock_email_client, sink_config, set()
+                )
 
                 mock_email_client.mark_as_read.assert_called_once_with("123")
 
@@ -305,9 +311,78 @@ class TestEmailMonitorService:
                 new_callable=AsyncMock,
                 return_value="retry",
             ):
-                await service._process_sink_config(mock_email_client, sink_config)
+                await service._process_sink_config(
+                    mock_email_client, sink_config, set()
+                )
 
                 mock_email_client.mark_as_read.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_sink_config_skips_uid_seen_this_cycle(self):
+        """A UID already handled by an overlapping pattern is not re-POSTed."""
+        mock_email_client = Mock()
+        mock_email_client.get_unread_messages_from_sender.return_value = [
+            ("123", b"raw_message_1")
+        ]
+
+        sink_config = EmailSinkConfig(
+            sender_pattern="@example.com",
+            endpoint="/test_alert",
+            description="Test alerts",
+        )
+
+        with patch("email_sink.monitor.EmailParser") as mock_parser:
+            service = EmailMonitorService()
+            with patch.object(
+                service,
+                "_post_alert_to_endpoint",
+                new_callable=AsyncMock,
+            ) as mock_post:
+                await service._process_sink_config(
+                    mock_email_client, sink_config, {"123"}
+                )
+
+                mock_post.assert_not_called()
+                mock_parser.parse_raw_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_sink_config_records_handled_uids(self):
+        """Processed UIDs are recorded so later sink configs skip them."""
+        mock_email_client = Mock()
+        mock_email_client.get_unread_messages_from_sender.return_value = [
+            ("123", b"raw_message_1")
+        ]
+
+        mock_alert = EmailAlert(
+            uid="123",
+            subject="Test Alert",
+            body="Alert body",
+            sender="test@example.com",
+            date=datetime.now(),
+        )
+
+        sink_config = EmailSinkConfig(
+            sender_pattern="test@example.com",
+            endpoint="/test_alert",
+            description="Test alerts",
+        )
+
+        with patch("email_sink.monitor.EmailParser") as mock_parser:
+            mock_parser.parse_raw_message.return_value = mock_alert
+
+            service = EmailMonitorService()
+            seen_uids: set[str] = set()
+            with patch.object(
+                service,
+                "_post_alert_to_endpoint",
+                new_callable=AsyncMock,
+                return_value="retry",
+            ):
+                await service._process_sink_config(
+                    mock_email_client, sink_config, seen_uids
+                )
+
+            assert seen_uids == {"123"}
 
     @pytest.mark.asyncio
     async def test_post_alert_to_endpoint_success(self):

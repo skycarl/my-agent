@@ -9,6 +9,10 @@ from loguru import logger
 
 from app.core.settings import config
 
+# Upper bound on messages fetched in a single poll, so a backlog built up
+# during an outage can't make every subsequent poll unboundedly expensive.
+MAX_MESSAGES_PER_POLL = 50
+
 
 class EmailClient:
     """Client for connecting to and monitoring email via IMAP."""
@@ -27,7 +31,12 @@ class EmailClient:
         try:
             # Create SSL context with proper verification
             ssl_context = ssl.create_default_context()
-            self.client = IMAPClient(self.server, ssl=True, ssl_context=ssl_context)
+            # timeout is required: IMAPClient defaults to None, so a silently
+            # dropped connection (NAT/firewall) would block the poll coroutine
+            # forever on recv() and permanently wedge the sink's event loop.
+            self.client = IMAPClient(
+                self.server, ssl=True, ssl_context=ssl_context, timeout=30
+            )
             self.client.login(self.email, self.password)
 
         except Exception as e:
@@ -84,6 +93,18 @@ class EmailClient:
             logger.info(
                 f"Found {len(message_ids)} unread messages from {sender_pattern}"
             )
+
+            # Cap the batch. Messages are only marked read after a successful
+            # POST, so an outage lets unread mail pile up — without a cap every
+            # later poll re-fetches the whole backlog into memory and can no
+            # longer finish within its interval.
+            if len(message_ids) > MAX_MESSAGES_PER_POLL:
+                logger.warning(
+                    f"Processing oldest {MAX_MESSAGES_PER_POLL} of "
+                    f"{len(message_ids)} unread messages from {sender_pattern}; "
+                    f"the rest will be picked up on subsequent polls"
+                )
+                message_ids = sorted(message_ids)[:MAX_MESSAGES_PER_POLL]
 
             # Fetch the messages
             messages = []

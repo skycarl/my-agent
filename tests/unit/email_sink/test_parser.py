@@ -34,7 +34,6 @@ class TestEmailParser:
         assert alert.body == "This is the email body"
         assert alert.sender == "test@example.com"
         assert alert.date == datetime(2025, 1, 15, 10, 30, 0)
-        assert alert.raw_headers == {"Message-ID": "123", "Content-Type": "text/plain"}
 
     def test_parse_raw_message_with_html_only(self):
         """Test parsing email with only HTML content."""

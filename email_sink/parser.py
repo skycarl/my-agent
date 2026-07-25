@@ -60,18 +60,12 @@ class EmailParser:
             # or unparseable
             date = mail.date if mail.date else now_local()
 
-            # Extract raw headers for additional context
-            raw_headers = {}
-            if hasattr(mail, "headers") and mail.headers:
-                raw_headers = dict(mail.headers)
-
             alert = EmailAlert(
                 uid=uid,
                 subject=subject,
                 body=body.strip(),
                 sender=sender,
                 date=date,
-                raw_headers=raw_headers,
             )
 
             logger.debug(f"Successfully parsed email {uid} from {sender}")

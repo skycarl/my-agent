@@ -3,7 +3,6 @@ Pydantic models for email sink data structures.
 """
 
 from datetime import datetime
-from typing import Dict, Any
 from pydantic import BaseModel, Field
 
 # Re-exported so the sink and server share one definition of the wire contract.
@@ -18,9 +17,6 @@ class EmailAlert(BaseModel):
     body: str = Field(description="Email body content (plain text)")
     sender: str = Field(description="Email sender address")
     date: datetime = Field(description="Email date/time")
-    raw_headers: Dict[str, Any] = Field(
-        default_factory=dict, description="Raw email headers"
-    )
 
 
 class EmailSinkConfig(BaseModel):
