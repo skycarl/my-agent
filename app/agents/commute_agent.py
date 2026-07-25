@@ -5,6 +5,8 @@ This agent specializes in commute information and uses direct tool calls
 to provide transportation-related assistance.
 """
 
+import asyncio
+
 from agents import Agent, function_tool
 from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
 from loguru import logger
@@ -27,7 +29,10 @@ from app.core.settings import config, get_model_settings_for_agent
 @function_tool
 async def get_monorail_hours() -> str:
     """Get the current operating hours for the Seattle Monorail."""
-    result = svc_get_monorail_hours()
+    # Offloaded: the service scrapes seattlemonorail.com with a blocking
+    # requests call (up to 10s), which would otherwise stall the single
+    # uvicorn worker's event loop for every other request and scheduled job.
+    result = await asyncio.to_thread(svc_get_monorail_hours)
     return str(result.model_dump())
 
 

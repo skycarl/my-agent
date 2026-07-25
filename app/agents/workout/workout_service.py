@@ -20,6 +20,10 @@ from app.core.timezone_utils import get_local_timezone, now_local
 METERS_PER_MILE = 1609.34
 METERS_TO_FEET = 3.28084
 
+# Sections update_section is allowed to write. Anything else would either
+# clobber generated Strava data or append a section nothing reads.
+EDITABLE_SECTIONS = {"Subjective Notes", "Fueling", "COROS Extras", "Context"}
+
 # Activity types that are "runs" for template selection
 RUN_TYPES = {"Run", "TrailRun", "Treadmill", "VirtualRun"}
 RIDE_TYPES = {"Ride", "VirtualRide", "MountainBikeRide", "GravelRide", "EBikeRide"}
@@ -357,15 +361,17 @@ def _build_run_summary(activity: dict) -> list[str]:
 
     elev_gain = activity.get("total_elevation_gain", 0) * METERS_TO_FEET
     rows.append(_summary_row("Elev Gain", f"{int(elev_gain)} ft"))
+    # Compute elev loss from splits (Strava doesn't give it directly). This
+    # only needs splits — gating it on elev_high dropped the row for any
+    # activity whose upload omitted the high/low fields.
+    if splits:
+        loss_m = sum(
+            abs(s.get("elevation_difference", 0))
+            for s in splits
+            if s.get("elevation_difference", 0) < 0
+        )
+        rows.append(_summary_row("Elev Loss", f"{int(loss_m * METERS_TO_FEET)} ft"))
     if activity.get("elev_high") is not None:
-        # Compute elev loss from splits (Strava doesn't give it directly)
-        if splits:
-            loss_m = sum(
-                abs(s.get("elevation_difference", 0))
-                for s in splits
-                if s.get("elevation_difference", 0) < 0
-            )
-            rows.append(_summary_row("Elev Loss", f"{int(loss_m * METERS_TO_FEET)} ft"))
         rows.append(
             _summary_row(
                 "Elev High", f"{int(activity['elev_high'] * METERS_TO_FEET)} ft"
@@ -763,8 +769,10 @@ def format_workout_markdown(
     if activity_type == "run":
         lines.extend(_format_mile_splits(activity))
 
-    # Laps (any type, only if >1)
-    if laps:
+    # Laps (runs and rides only, and only if >1). _format_laps has no table
+    # shape for other types — a strength session would render as a ride table
+    # with 0.00 mi distance and "-" in every power/cadence cell.
+    if laps and activity_type in ("run", "ride"):
         lines.extend(_format_laps(laps, activity_type))
 
     # HR Zones
@@ -956,6 +964,16 @@ def update_section(
     For Subjective Notes, content should include the pre/during/post structure.
     When a date has multiple saved workouts, `activity_type` selects the right one.
     """
+    # `section` comes from the model. Without this guard a name like
+    # "Summary" would overwrite the fetched Strava data, which _save_workout
+    # will not re-fetch over an existing file, and a near-miss like "Notes"
+    # would silently append a section nothing reads.
+    if section not in EDITABLE_SECTIONS:
+        return (
+            f"Unknown section '{section}'. Must be one of: "
+            f"{', '.join(sorted(EDITABLE_SECTIONS))}."
+        )
+
     file_path, error = _resolve_workout_file(date_str, activity_type)
     if file_path is None:
         return error

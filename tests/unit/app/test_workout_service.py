@@ -434,6 +434,31 @@ class TestUpdateSection:
         assert "Slept well" in content
         assert "Felt great" in content
 
+    @pytest.mark.parametrize("bad_section", ["Summary", "Notes", "Mile Splits"])
+    def test_update_section_rejects_unknown_section(
+        self, test_config, tmp_path, bad_section
+    ):
+        """An unlisted section name is refused, leaving the file untouched.
+
+        Regression: "Summary" matched the generated header and wiped the
+        fetched Strava data, which _save_workout will not re-fetch over an
+        existing file.
+        """
+        workout_dir = tmp_path / "workouts"
+        workout_dir.mkdir()
+        workout_file = workout_dir / "2026-03-19_morning-run.md"
+        original = (
+            "# Morning Run\n\n## Summary\n| Metric | Value |\n"
+            "| Distance | 6.20 mi |\n\n## Subjective Notes\n> \n"
+        )
+        workout_file.write_text(original)
+
+        with patch("app.agents.workout.workout_service.config", test_config):
+            result = update_section("2026-03-19", bad_section, "felt easy")
+
+        assert "Unknown section" in result
+        assert workout_file.read_text() == original
+
     def test_add_new_section(self, test_config, tmp_path):
         """Test adding a new section that doesn't exist yet."""
         workout_dir = tmp_path / "workouts"
