@@ -68,3 +68,34 @@ class TestSchedulerConversationCapture:
             mode="notify",
         )
         assert task["conversation_id"] is None
+
+
+class TestScheduleTaskInstructionValidation:
+    @pytest.mark.asyncio
+    async def test_agent_mode_rejects_blank_instruction(self):
+        """An agent-mode task with a blank instruction is rejected, not stored."""
+        captured = {}
+
+        ctx = RunContextWrapper(context=None)
+        with (
+            patch(
+                "app.core.task_store.append_task_to_config",
+                side_effect=lambda t: captured.setdefault("task", t) or "task-id",
+            ),
+            patch("app.core.scheduler.scheduler_service", MagicMock()),
+        ):
+            result = await schedule_task.on_invoke_tool(
+                ctx,
+                json.dumps(
+                    {
+                        "name": "Broken",
+                        "schedule_type": "cron",
+                        "cron_expression": "0 9 * * *",
+                        "instruction": "   ",
+                        "mode": "agent",
+                    }
+                ),
+            )
+
+        assert "Error" in str(result)
+        assert "task" not in captured

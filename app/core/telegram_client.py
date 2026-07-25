@@ -5,6 +5,7 @@ This module provides a way for the FastAPI app to send messages to Telegram user
 without needing to run the full Telegram bot.
 """
 
+import asyncio
 import html
 import re
 
@@ -24,16 +25,25 @@ def markdown_to_telegram_html(text: str) -> str:
     # First, escape HTML special characters so raw <, >, & in agent text are safe
     text = html.escape(text)
 
+    # Extract code blocks and inline code into placeholders so the formatting
+    # regexes below can't inject tags inside <pre>/<code> — Telegram forbids
+    # nested entities there and rejects the whole message with a 400.
+    placeholders: list[str] = []
+
+    def _stash(fragment: str) -> str:
+        placeholders.append(fragment)
+        return f"\x00{len(placeholders) - 1}\x00"
+
     # Code blocks (``` ... ```) — must come before inline code
     text = re.sub(
         r"```(?:\w*)\n?(.*?)```",
-        r"<pre>\1</pre>",
+        lambda m: _stash(f"<pre>{m.group(1)}</pre>"),
         text,
         flags=re.DOTALL,
     )
 
     # Inline code (`code`)
-    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+    text = re.sub(r"`([^`]+)`", lambda m: _stash(f"<code>{m.group(1)}</code>"), text)
 
     # Markdown links [text](url) → <a href="url">text</a> so Telegram renders a
     # single tappable label instead of leaving the raw [text](url) to be
@@ -58,6 +68,9 @@ def markdown_to_telegram_html(text: str) -> str:
 
     # Italic (*text*) — only single *, not inside bold
     text = re.sub(r"(?<!\*)\*([^*]+?)\*(?!\*)", r"<i>\1</i>", text)
+
+    # Restore code blocks and inline code
+    text = re.sub(r"\x00(\d+)\x00", lambda m: placeholders[int(m.group(1))], text)
 
     return text
 
@@ -183,9 +196,26 @@ class TelegramClient:
                         + (f" (chunk {i + 1}/{len(chunks)})" if len(chunks) > 1 else "")
                     )
 
-                    response = await client.post(
-                        f"{self.base_url}/sendMessage", json=payload, timeout=30.0
-                    )
+                    # Retry the same chunk on 429 (rate limited), honoring
+                    # Telegram's retry_after, so multi-chunk sends aren't
+                    # truncated mid-sequence.
+                    for attempt in range(3):
+                        response = await client.post(
+                            f"{self.base_url}/sendMessage", json=payload, timeout=30.0
+                        )
+                        if response.status_code != 429 or attempt == 2:
+                            break
+                        try:
+                            retry_after = float(
+                                response.json()["parameters"]["retry_after"]
+                            )
+                        except (KeyError, TypeError, ValueError):
+                            retry_after = 1.0
+                        logger.warning(
+                            f"Telegram rate limited (429) for user {user_id}, "
+                            f"retrying chunk in {retry_after}s"
+                        )
+                        await asyncio.sleep(retry_after)
 
                     if response.status_code == 200:
                         response_data = response.json()

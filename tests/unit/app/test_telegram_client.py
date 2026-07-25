@@ -1,3 +1,7 @@
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
+
 from app.core.telegram_client import TelegramClient, markdown_to_telegram_html
 
 
@@ -115,6 +119,49 @@ class TestMarkdownToTelegramHtml:
         assert "&amp;amp;" not in result
 
 
+class TestCodeBlockProtection:
+    """Formatting regexes must not inject tags inside <pre>/<code> —
+    Telegram forbids nested entities there and rejects the message."""
+
+    def test_comment_in_code_block_not_bolded(self):
+        result = markdown_to_telegram_html("```python\n# comment\nx = 1\n```")
+        assert "<pre># comment\nx = 1\n</pre>" in result
+        assert "<b>" not in result
+
+    def test_bold_markers_in_code_block_untouched(self):
+        result = markdown_to_telegram_html("```\n**stars**\n```")
+        assert "**stars**" in result
+        assert "<b>" not in result
+
+    def test_asterisks_in_code_block_not_italicized(self):
+        result = markdown_to_telegram_html("```\na * b * c\n```")
+        assert "a * b * c" in result
+        assert "<i>" not in result
+
+    def test_link_syntax_in_code_block_untouched(self):
+        result = markdown_to_telegram_html("```\n[x](http://y)\n```")
+        assert "[x](http://y)" in result
+        assert "<a " not in result
+
+    def test_inline_code_protected(self):
+        result = markdown_to_telegram_html("`a * b` and `**x**`")
+        assert "<code>a * b</code>" in result
+        assert "<code>**x**</code>" in result
+        assert "<b>" not in result
+        assert "<i>" not in result
+
+    def test_code_block_contents_still_escaped(self):
+        result = markdown_to_telegram_html("```\nif a < b & c:\n```")
+        assert "&lt;" in result
+        assert "&amp;" in result
+
+    def test_formatting_outside_code_block_still_applied(self):
+        result = markdown_to_telegram_html("**bold**\n```\n# code\n```\n*it*")
+        assert "<b>bold</b>" in result
+        assert "<pre># code\n</pre>" in result
+        assert "<i>it</i>" in result
+
+
 class TestSplitMessage:
     """Tests for TelegramClient._split_message."""
 
@@ -175,3 +222,66 @@ class TestSplitMessage:
         assert "".join(chunks).replace(" ", "") == msg.replace(" ", "")
         for chunk in chunks:
             assert len(chunk) <= TelegramClient.MAX_MESSAGE_LENGTH
+
+
+def _make_response(status_code: int, json_data: dict) -> Mock:
+    response = Mock()
+    response.status_code = status_code
+    response.json.return_value = json_data
+    response.text = str(json_data)
+    return response
+
+
+class TestSendMessage429Retry:
+    """Tests for retrying a chunk when Telegram returns 429."""
+
+    def _client(self) -> TelegramClient:
+        client = TelegramClient.__new__(TelegramClient)
+        client.token = "test-token"
+        client.base_url = "https://api.telegram.org/bottest-token"
+        return client
+
+    @pytest.mark.asyncio
+    async def test_retries_chunk_after_429(self):
+        client = self._client()
+        resp_429 = _make_response(429, {"ok": False, "parameters": {"retry_after": 2}})
+        resp_200 = _make_response(200, {"ok": True, "result": {"message_id": 42}})
+        mock_post = AsyncMock(side_effect=[resp_429, resp_200])
+        sleeps = []
+
+        async def fake_sleep(seconds):
+            sleeps.append(seconds)
+
+        with (
+            patch("app.core.telegram_client.httpx.AsyncClient") as mock_client,
+            patch("app.core.telegram_client.asyncio.sleep", side_effect=fake_sleep),
+        ):
+            mock_client.return_value.__aenter__.return_value.post = mock_post
+            success, message_id = await client.send_message(1, "hi")
+
+        assert success is True
+        assert message_id == 42
+        assert mock_post.call_count == 2
+        assert sleeps == [2.0]
+
+    @pytest.mark.asyncio
+    async def test_gives_up_after_bounded_429_retries(self):
+        client = self._client()
+        resp_429 = _make_response(429, {"ok": False})  # no retry_after → default
+        mock_post = AsyncMock(return_value=resp_429)
+        sleeps = []
+
+        async def fake_sleep(seconds):
+            sleeps.append(seconds)
+
+        with (
+            patch("app.core.telegram_client.httpx.AsyncClient") as mock_client,
+            patch("app.core.telegram_client.asyncio.sleep", side_effect=fake_sleep),
+        ):
+            mock_client.return_value.__aenter__.return_value.post = mock_post
+            success, message_id = await client.send_message(1, "hi")
+
+        assert success is False
+        assert message_id is None
+        assert mock_post.call_count == 3
+        assert sleeps == [1.0, 1.0]

@@ -17,10 +17,9 @@ def fetch_hours_rows(url: str = URL, timeout: int = 10) -> list[str]:
     Scans every <li> tag — no brittle header rules — and keeps
     insertion order while de-duplicating.
     """
-    html = requests.get(
-        url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout
-    ).text
-    soup = BeautifulSoup(html, "html.parser")
+    response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, "html.parser")
 
     seen, rows = set(), []
     for li in soup.find_all("li"):

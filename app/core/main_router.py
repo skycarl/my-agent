@@ -1,10 +1,12 @@
+import asyncio
 import json
 import os
 import re
 from pathlib import Path
 from typing import List, Optional
 
-from agents import Runner, RunConfig
+from agents import Runner, RunConfig, set_default_openai_client
+from openai import AsyncOpenAI
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
@@ -38,10 +40,35 @@ from app.models.tasks import (
 )
 
 os.environ["OPENAI_API_KEY"] = config.openai_api_key
-os.environ["OPENAI_TIMEOUT"] = str(config.openai_timeout)
-os.environ["OPENAI_MAX_RETRIES"] = str(config.openai_max_retries)
+# Timeout/retries are constructor-only params (the SDK never reads them from
+# env vars), so register a configured client with the Agents SDK.
+set_default_openai_client(
+    AsyncOpenAI(
+        api_key=config.openai_api_key,
+        timeout=config.openai_timeout,
+        max_retries=config.openai_max_retries,
+    )
+)
 
 router = APIRouter()
+
+# Per-conversation locks so concurrent /agent_response requests for the same
+# conversation serialize (two Runner.run calls sharing one SQLite session would
+# interleave history). Different conversations stay concurrent.
+_conversation_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_conversation_lock(conversation_id: str) -> asyncio.Lock:
+    lock = _conversation_locks.get(conversation_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _conversation_locks[conversation_id] = lock
+    return lock
+
+
+# UIDs currently being processed by /process_alert, so a re-POST of the same
+# alert (e.g. email-sink client timeout) can't trigger a second agent run.
+_alert_uids_in_flight: set[str] = set()
 
 
 def _sanitize_alert_body(body: str, max_length: int = 2000) -> str:
@@ -112,7 +139,12 @@ def healthcheck():
     return HealthResponse(status="healthy")
 
 
-@router.get("/models", status_code=200, response_model=ModelsResponse)
+@router.get(
+    "/models",
+    status_code=200,
+    dependencies=[Depends(verify_token)],
+    response_model=ModelsResponse,
+)
 def get_models():
     """Get list of available OpenAI models."""
     logger.debug("Models endpoint called")
@@ -409,25 +441,29 @@ async def create_agent_response(request_body: AgentRequest, request: Request):
         logger.debug("Running agent workflow with Orchestrator")
         is_scheduled = request.headers.get("X-Scheduled-Task") == "true"
 
-        if is_scheduled:
-            logger.debug(
-                "Scheduled task invocation — running without conversation session"
-            )
-            result = await Runner.run(
-                orchestrator_agent,
-                input=agent_input,
-                max_turns=10,
-                run_config=RunConfig(workflow_name="scheduled_task"),
-            )
-        else:
-            session = get_session(conversation_id)
-            result = await Runner.run(
-                orchestrator_agent,
-                input=agent_input,
-                session=session,
-                max_turns=10,
-                run_config=RunConfig(workflow_name="agent_response"),
-            )
+        # Serialize runs per conversation: a second message arriving while the
+        # first run is in flight would otherwise share the same SQLite session
+        # concurrently and interleave history.
+        async with _get_conversation_lock(conversation_id):
+            if is_scheduled:
+                logger.debug(
+                    "Scheduled task invocation — running without conversation session"
+                )
+                result = await Runner.run(
+                    orchestrator_agent,
+                    input=agent_input,
+                    max_turns=10,
+                    run_config=RunConfig(workflow_name="scheduled_task"),
+                )
+            else:
+                session = get_session(conversation_id)
+                result = await Runner.run(
+                    orchestrator_agent,
+                    input=agent_input,
+                    session=session,
+                    max_turns=10,
+                    run_config=RunConfig(workflow_name="agent_response"),
+                )
 
         logger.debug("Agent workflow completed successfully")
         logger.debug(f"Response: {result.final_output}")
@@ -549,6 +585,7 @@ async def process_alert(request: AlertRequest):
         processing_time_ms=None,
         error_message=None,
     )
+    uid_marked_in_flight = False
 
     try:
         # Load existing alerts early for dedup check
@@ -565,9 +602,10 @@ async def process_alert(request: AlertRequest):
                 alerts = []
 
         # UID deduplication check (.get: a single legacy record without a uid
-        # must not 500 every future alert)
+        # must not 500 every future alert). The in-flight set catches the same
+        # UID being re-POSTed while a slow agent run is still processing it.
         existing_uids = {alert.get("uid") for alert in alerts}
-        if request.uid in existing_uids:
+        if request.uid in existing_uids or request.uid in _alert_uids_in_flight:
             logger.info(f"Duplicate alert UID {request.uid}, skipping processing")
             return JSONResponse(
                 status_code=200,
@@ -577,6 +615,8 @@ async def process_alert(request: AlertRequest):
                     "alert_id": "",
                 },
             )
+        _alert_uids_in_flight.add(request.uid)
+        uid_marked_in_flight = True
 
         # Sender allowlist validation
         allowed_patterns = [
@@ -707,6 +747,21 @@ async def process_alert(request: AlertRequest):
             except (json.JSONDecodeError, FileNotFoundError) as e:
                 logger.warning(f"Error re-reading alerts file before write: {e}")
 
+        # Re-check dedup after the slow agent run: if another request stored
+        # this UID in the meantime, don't write a second record.
+        if request.uid in {alert.get("uid") for alert in alerts}:
+            logger.info(
+                f"Alert UID {request.uid} was stored by a concurrent request, skipping store"
+            )
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "message": "Duplicate alert, already processed",
+                    "alert_id": "",
+                },
+            )
+
         # Create the alert record with agent metadata (uses original body)
         alert_record = {
             "id": f"alert_{len(alerts) + 1}_{request.uid}",
@@ -795,6 +850,9 @@ async def process_alert(request: AlertRequest):
             agent_processing=agent_metadata,
         )
         return JSONResponse(status_code=500, content=jsonable_encoder(error_response))
+    finally:
+        if uid_marked_in_flight:
+            _alert_uids_in_flight.discard(request.uid)
 
 
 class ClearConversationRequest(BaseModel):

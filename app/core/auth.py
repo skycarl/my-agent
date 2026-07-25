@@ -1,3 +1,5 @@
+import secrets
+
 from fastapi import Header, HTTPException
 from loguru import logger
 
@@ -17,7 +19,8 @@ async def verify_token(x_token: str = Header(alias="X-Token")):
             status_code=503, detail="Server authentication token is not configured"
         )
 
-    if x_token != config.x_token:
+    # Constant-time comparison to avoid leaking the token via timing
+    if not secrets.compare_digest(x_token, config.x_token):
         logger.warning("Authentication failed: token mismatch")
         raise HTTPException(status_code=401, detail="Invalid authentication token")
 

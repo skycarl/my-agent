@@ -100,12 +100,20 @@ def _parse_date(date_str: str) -> datetime:
     except ValueError:
         pass
 
-    # Try "Month Day" format (e.g., "March 19")
+    # Try "Month Day" format (e.g., "March 19"). Parse with the current year
+    # explicitly (strptime's default year 1900 rejects Feb 29), and assume the
+    # previous year for future dates — people reference past workouts.
     try:
-        parsed = datetime.strptime(date_str.strip(), "%B %d")
-        return get_local_timezone().localize(parsed.replace(year=today.year))
+        parsed = datetime.strptime(f"{date_str.strip()} {today.year}", "%B %d %Y")
     except ValueError:
         pass
+    else:
+        if parsed.date() > today.date():
+            try:
+                parsed = parsed.replace(year=today.year - 1)
+            except ValueError:
+                pass  # Feb 29 with no Feb 29 last year: keep the current leap year
+        return get_local_timezone().localize(parsed)
 
     raise ValueError(
         f"Could not parse date '{date_str}'. Use 'today', 'yesterday', 'YYYY-MM-DD', or 'Month Day'."
@@ -212,11 +220,12 @@ def _activity_matches_type(activity: dict, activity_type: str) -> bool:
 
 
 def _select_matching(items, identity_of, descriptor: str):
-    """Select items matching a descriptor, tiered: exact name, name substring, then type.
+    """Select items matching a descriptor, tiered: exact name, activity type, then name substring.
 
-    `identity_of(item)` returns a dict with 'name'/'type'/'sport_type'. Tiering lets
-    'run' pick any run, while 'morning run' or 'morning' picks the specifically-named
-    activity even when several share a type (Strava names encode time of day).
+    `identity_of(item)` returns a dict with 'name'/'type'/'sport_type'. Type beats
+    name-substring so 'run' picks an actual Run even when another activity's name
+    merely mentions it (e.g. 'Post-Run Walk'), while 'morning run' or 'morning'
+    picks the specifically-named activity when several share a type.
     """
     wanted = descriptor.strip().lower()
 
@@ -227,11 +236,11 @@ def _select_matching(items, identity_of, descriptor: str):
     if exact:
         return exact
 
-    by_name = [i for i in items if wanted and wanted in name_of(i)]
-    if by_name:
-        return by_name
+    by_type = [i for i in items if _activity_matches_type(identity_of(i), wanted)]
+    if by_type:
+        return by_type
 
-    return [i for i in items if _activity_matches_type(identity_of(i), wanted)]
+    return [i for i in items if wanted and wanted in name_of(i)]
 
 
 def _format_activity_options(activities: list[dict]) -> str:
@@ -727,6 +736,8 @@ def format_workout_markdown(
         f"**Type:** {activity.get('type', 'Unknown')}",
         f"**Sport Type:** {sport_type}",
     ]
+    if activity.get("id"):
+        lines.append(f"**Strava ID:** {activity['id']}")
 
     if activity_type in ("run", "ride"):
         lines.append(f"**Workout Category:** {_guess_workout_category(activity)}")
@@ -794,14 +805,34 @@ def _workout_file_path(activity: dict) -> Path:
     return Path(config.workouts_path) / filename
 
 
+def _file_activity_id(path: Path) -> str | None:
+    """Extract the Strava activity id recorded in a saved workout file's header."""
+    for line in path.read_text().splitlines():
+        if line.startswith("## "):
+            break  # identity fields live above the first section
+        if line.startswith("**Strava ID:**"):
+            return line.split("**Strava ID:**", 1)[1].strip()
+    return None
+
+
 def _save_workout(activity: dict, markdown: str) -> tuple[Path, bool]:
-    """Save workout markdown to file, unless it already exists (preserving
-    manual edits). Returns (path, saved) where saved is False if the
-    existing file was kept."""
-    file_path = _workout_file_path(activity)
-    if file_path.exists():
-        logger.info(f"Workout file already exists at {file_path}, skipping save")
-        return file_path, False
+    """Save workout markdown to file, unless this activity is already saved
+    (preserving manual edits). A *different* activity that collides on
+    date+name (Strava default names) gets a numeric filename suffix.
+    Returns (path, saved) where saved is False if the existing file was kept."""
+    base_path = _workout_file_path(activity)
+    activity_id = str(activity.get("id", ""))
+
+    file_path = base_path
+    suffix = 2
+    while file_path.exists():
+        existing_id = _file_activity_id(file_path)
+        if existing_id is None or existing_id == activity_id:
+            logger.info(f"Workout file already exists at {file_path}, skipping save")
+            return file_path, False
+        file_path = base_path.with_name(f"{base_path.stem}-{suffix}.md")
+        suffix += 1
+
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(markdown)
     logger.info(f"Workout saved to {file_path}")

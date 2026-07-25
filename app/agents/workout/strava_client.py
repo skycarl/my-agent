@@ -5,12 +5,13 @@ Handles authentication and activity fetching from the Strava API.
 """
 
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import httpx
 from loguru import logger
 
 from app.core.settings import config
+from app.core.timezone_utils import get_local_timezone
 
 STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token"
 STRAVA_API_BASE = "https://www.strava.com/api/v3"
@@ -18,13 +19,16 @@ STRAVA_API_BASE = "https://www.strava.com/api/v3"
 # Module-level token cache
 _access_token: str | None = None
 _token_expires_at: float = 0
+# Refresh this many seconds before actual expiry so a multi-call fetch
+# doesn't 401 mid-sequence.
+_TOKEN_EXPIRY_MARGIN = 60
 
 
 async def get_access_token() -> str:
-    """Get a valid access token, refreshing if expired."""
+    """Get a valid access token, refreshing if expired (or about to expire)."""
     global _access_token, _token_expires_at
 
-    if _access_token and time.time() < _token_expires_at:
+    if _access_token and time.time() < _token_expires_at - _TOKEN_EXPIRY_MARGIN:
         return _access_token
 
     async with httpx.AsyncClient() as client:
@@ -137,8 +141,15 @@ async def list_activities_on_date(target_date: datetime) -> list[dict]:
     Returns the lightweight summary objects from Strava's list endpoint (not the
     full detail). Use get_activity(id) to fetch full detail for a chosen one.
     """
-    start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=0)
+    # Localize each day boundary independently so both get their own UTC
+    # offset — reusing one offset for both would clip the evening of
+    # DST fall-back days.
+    tz = get_local_timezone()
+    day_start = target_date.replace(
+        hour=0, minute=0, second=0, microsecond=0, tzinfo=None
+    )
+    start_of_day = tz.localize(day_start)
+    end_of_day = tz.localize(day_start + timedelta(days=1)) - timedelta(seconds=1)
 
     headers = await _get_headers()
     async with httpx.AsyncClient() as client:

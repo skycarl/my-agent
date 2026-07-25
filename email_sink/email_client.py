@@ -62,14 +62,17 @@ class EmailClient:
             sender_pattern: Email address or domain pattern to match
 
         Returns:
-            List of tuples: (uid, raw_message_data)
+            List of tuples: ("{uidvalidity}-{message_id}", raw_message_data).
+            UIDVALIDITY is included so dedup keys stay unique if the server
+            ever resets its UID sequence.
         """
         if not self.client:
             raise RuntimeError("Not connected to IMAP server")
 
         try:
-            # Select the inbox
-            self.client.select_folder("INBOX")
+            # Select the inbox and capture UIDVALIDITY for dedup keys
+            select_info = self.client.select_folder("INBOX")
+            uidvalidity = select_info.get(b"UIDVALIDITY", 0)
 
             # Search for unread messages from the specified sender
             search_criteria = ["UNSEEN", "FROM", sender_pattern]
@@ -86,10 +89,12 @@ class EmailClient:
             messages = []
             for msg_id in message_ids:
                 try:
-                    # Fetch the raw message data
-                    response = self.client.fetch([msg_id], ["RFC822"])
-                    raw_data = response[msg_id][b"RFC822"]
-                    messages.append((str(msg_id), raw_data))
+                    # Fetch with BODY.PEEK[] so the message is not implicitly
+                    # marked \Seen; we only mark as read after a successful POST.
+                    # The server responds under the BODY[] key.
+                    response = self.client.fetch([msg_id], ["BODY.PEEK[]"])
+                    raw_data = response[msg_id][b"BODY[]"]
+                    messages.append((f"{uidvalidity}-{msg_id}", raw_data))
 
                 except Exception as e:
                     logger.error(f"Failed to fetch message {msg_id}: {e}")
@@ -107,7 +112,10 @@ class EmailClient:
             raise RuntimeError("Not connected to IMAP server")
 
         try:
-            self.client.add_flags([int(uid)], [b"\\Seen"])
+            # uid is "{uidvalidity}-{message_id}"; the server only needs the
+            # message id
+            msg_id = int(uid.rsplit("-", 1)[-1])
+            self.client.add_flags([msg_id], [b"\\Seen"])
             logger.debug(f"Marked message {uid} as read")
             return True
         except Exception as e:

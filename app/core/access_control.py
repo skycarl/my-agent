@@ -10,10 +10,12 @@ FileLock for safe concurrent access, mirroring ``app/core/task_store.py``.
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Dict, List
 
 from filelock import FileLock
+from loguru import logger
 
 from app.core.settings import config
 
@@ -27,13 +29,18 @@ def _lock_path() -> str:
 
 
 def _read() -> Dict[str, List[int]]:
-    """Read the allowlist, returning a normalized {"users": [...], "groups": [...]} dict."""
+    """Read the allowlist, returning a normalized {"users": [...], "groups": [...]} dict.
+
+    Raises on a corrupt file so callers never mistake corruption for an empty
+    allowlist (and then persist that empty state, erasing everyone).
+    """
     store = _store_path()
     if store.exists():
         try:
             data = json.loads(store.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
+        except Exception as e:
+            logger.error(f"Corrupt allowlist file {store}: {e}")
+            raise
     else:
         data = {}
     return {
@@ -43,9 +50,12 @@ def _read() -> Dict[str, List[int]]:
 
 
 def _write(data: Dict[str, List[int]]) -> None:
+    """Write the allowlist atomically (temp file + rename)."""
     store = _store_path()
     store.parent.mkdir(parents=True, exist_ok=True)
-    store.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp = store.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, store)
 
 
 def is_authorized(user_id: int, chat_id: int, chat_type: str) -> bool:
@@ -57,7 +67,11 @@ def is_authorized(user_id: int, chat_id: int, chat_type: str) -> bool:
     if user_id == config.owner_user_id:
         return True
 
-    data = _read()
+    try:
+        data = _read()
+    except Exception:
+        # Corrupt file: fail closed (deny) without destroying the stored data.
+        return False
     if chat_type == "private":
         return user_id in data["users"]
     if chat_type in ("group", "supergroup"):

@@ -10,6 +10,21 @@ import pytz
 from app.core.settings import config
 
 
+def _localize(candidate: datetime) -> datetime:
+    """Localize a naive datetime to the app timezone, handling DST transitions.
+
+    Nonexistent spring-forward times are shifted forward across the gap;
+    ambiguous fall-back times resolve to the first (DST) occurrence.
+    """
+    tz = get_local_timezone()
+    try:
+        return tz.localize(candidate, is_dst=None)
+    except pytz.exceptions.NonExistentTimeError:
+        return tz.normalize(tz.localize(candidate, is_dst=False))
+    except pytz.exceptions.AmbiguousTimeError:
+        return tz.localize(candidate, is_dst=True)
+
+
 def get_local_timezone():
     """
     Get the configured local timezone from settings.
@@ -73,7 +88,7 @@ def parse_datetime_in_app_tz(dt_str_or_obj) -> datetime:
 
     if candidate.tzinfo is None:
         # Localize to app timezone
-        return get_local_timezone().localize(candidate)
+        return _localize(candidate)
     return candidate
 
 
@@ -93,5 +108,5 @@ def parse_datetime_in_scheduler_tz(dt_str_or_obj) -> datetime:
 def ensure_timezone(dt: datetime) -> datetime:
     """Ensure datetime is timezone-aware in the app's timezone if naive."""
     if dt.tzinfo is None:
-        return get_local_timezone().localize(dt)
+        return _localize(dt)
     return dt

@@ -71,3 +71,23 @@ class TestMutations:
         access.add_group(GROUP)
         data = access.list_authorized()
         assert data == {"users": [FAMILY], "groups": [GROUP]}
+
+
+class TestCorruption:
+    def test_is_authorized_fails_closed_on_corrupt_file(self, access):
+        access.add_user(FAMILY)
+        access._store_path().write_text("{not valid json", encoding="utf-8")
+        assert access.is_authorized(FAMILY, FAMILY, "private") is False
+
+    def test_mutation_raises_and_preserves_corrupt_file(self, access):
+        access.add_user(FAMILY)
+        store = access._store_path()
+        store.write_text("{not valid json", encoding="utf-8")
+
+        with pytest.raises(Exception):
+            access.add_user(999)
+        with pytest.raises(Exception):
+            access.remove_user(FAMILY)
+
+        # The corrupt file was NOT clobbered with an empty allowlist
+        assert store.read_text(encoding="utf-8") == "{not valid json"

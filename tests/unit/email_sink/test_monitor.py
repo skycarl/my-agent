@@ -200,7 +200,7 @@ class TestEmailMonitorService:
                 service,
                 "_post_alert_to_endpoint",
                 new_callable=AsyncMock,
-                return_value=True,
+                return_value="success",
             ) as mock_post:
                 await service._process_sink_config(mock_email_client, sink_config)
 
@@ -237,6 +237,79 @@ class TestEmailMonitorService:
                 mock_email_client.mark_as_read.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_process_sink_config_rejected_marks_read(self):
+        """A permanently rejected alert (403) is marked read, not retried."""
+        mock_email_client = Mock()
+        mock_email_client.get_unread_messages_from_sender.return_value = [
+            ("123", b"raw_message_1")
+        ]
+        mock_email_client.mark_as_read = Mock(return_value=True)
+
+        mock_alert = EmailAlert(
+            uid="123",
+            subject="Test Alert",
+            body="Alert body",
+            sender="test@example.com",
+            date=datetime.now(),
+        )
+
+        sink_config = EmailSinkConfig(
+            sender_pattern="test@example.com",
+            endpoint="/test_alert",
+            description="Test alerts",
+        )
+
+        with patch("email_sink.monitor.EmailParser") as mock_parser:
+            mock_parser.parse_raw_message.return_value = mock_alert
+
+            service = EmailMonitorService()
+            with patch.object(
+                service,
+                "_post_alert_to_endpoint",
+                new_callable=AsyncMock,
+                return_value="rejected",
+            ):
+                await service._process_sink_config(mock_email_client, sink_config)
+
+                mock_email_client.mark_as_read.assert_called_once_with("123")
+
+    @pytest.mark.asyncio
+    async def test_process_sink_config_retry_leaves_unread(self):
+        """A transient failure leaves the email unread for retry."""
+        mock_email_client = Mock()
+        mock_email_client.get_unread_messages_from_sender.return_value = [
+            ("123", b"raw_message_1")
+        ]
+
+        mock_alert = EmailAlert(
+            uid="123",
+            subject="Test Alert",
+            body="Alert body",
+            sender="test@example.com",
+            date=datetime.now(),
+        )
+
+        sink_config = EmailSinkConfig(
+            sender_pattern="test@example.com",
+            endpoint="/test_alert",
+            description="Test alerts",
+        )
+
+        with patch("email_sink.monitor.EmailParser") as mock_parser:
+            mock_parser.parse_raw_message.return_value = mock_alert
+
+            service = EmailMonitorService()
+            with patch.object(
+                service,
+                "_post_alert_to_endpoint",
+                new_callable=AsyncMock,
+                return_value="retry",
+            ):
+                await service._process_sink_config(mock_email_client, sink_config)
+
+                mock_email_client.mark_as_read.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_post_alert_to_endpoint_success(self):
         """Test successfully posting alert to endpoint."""
         alert = EmailAlert(
@@ -262,7 +335,7 @@ class TestEmailMonitorService:
                 service = EmailMonitorService()
                 result = await service._post_alert_to_endpoint(alert, "/test_alert")
 
-                assert result is True
+                assert result == "success"
                 mock_client_instance.post.assert_called_once()
 
                 # Verify that the datetime was properly serialized
@@ -299,7 +372,36 @@ class TestEmailMonitorService:
                 service = EmailMonitorService()
                 result = await service._post_alert_to_endpoint(alert, "/test_alert")
 
-                assert result is False
+                assert result == "retry"
+
+    @pytest.mark.asyncio
+    async def test_post_alert_to_endpoint_403_rejected(self):
+        """Test that a 403 response is treated as a permanent rejection."""
+        alert = EmailAlert(
+            uid="123",
+            subject="Test Alert",
+            body="Alert body",
+            sender="test@example.com",
+            date=now_local(),
+        )
+
+        mock_response = Mock()
+        mock_response.status_code = 403
+        mock_response.text = "Sender not in allowlist"
+
+        with patch("email_sink.monitor.config") as mock_config:
+            mock_config.app_url = "http://localhost:8000"
+            mock_config.x_token = "test_token"
+
+            with patch("email_sink.monitor.httpx.AsyncClient") as mock_client:
+                mock_client_instance = AsyncMock()
+                mock_client_instance.post.return_value = mock_response
+                mock_client.return_value.__aenter__.return_value = mock_client_instance
+
+                service = EmailMonitorService()
+                result = await service._post_alert_to_endpoint(alert, "/test_alert")
+
+                assert result == "rejected"
 
     @pytest.mark.asyncio
     async def test_post_alert_to_endpoint_exception(self):
@@ -324,7 +426,7 @@ class TestEmailMonitorService:
                 service = EmailMonitorService()
                 result = await service._post_alert_to_endpoint(alert, "/test_alert")
 
-                assert result is False
+                assert result == "retry"
 
     def test_start_service(self):
         """Test starting the email monitoring service."""

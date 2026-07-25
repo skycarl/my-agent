@@ -4,6 +4,7 @@ Telegram bot implementation using python-telegram-bot library.
 
 import base64
 import subprocess
+import time
 from importlib.metadata import version as pkg_version
 
 import httpx
@@ -39,6 +40,11 @@ class TelegramMessage(BaseModel):
 
 # API classes removed - using simple dict format for fire-and-forget calls
 
+# Throttle admin DMs about unauthorized access: at most one notification per
+# offending user per interval. Every attempt is still logged.
+UNAUTHORIZED_NOTIFY_INTERVAL_SECONDS = 3600
+_last_unauthorized_notify: dict[int, float] = {}
+
 
 class TelegramBot:
     """Main Telegram bot class."""
@@ -49,7 +55,10 @@ class TelegramBot:
         self.x_token = config.x_token
         self.owner_user_id = config.owner_user_id
         self.max_conversation_history = config.max_conversation_history
-        self.selected_model: str = config.default_model
+        self.default_model: str = config.default_model
+        # Model selection is per-chat so one chat changing it doesn't affect
+        # others; keyed by str(chat_id), falling back to the default model.
+        self.selected_models: dict[str, str] = {}
         self.application: Application | None = None
 
         # Note: Conversation history is now managed by the backend in persistent storage
@@ -76,6 +85,10 @@ class TelegramBot:
         if user.is_bot:
             return False
         return access_control.is_authorized(user.id, chat.id, chat.type)
+
+    def _get_model(self, chat_id: str | int) -> str:
+        """Return the model selected for this chat, or the default."""
+        return self.selected_models.get(str(chat_id), self.default_model)
 
     def _is_owner(self, update: Update) -> bool:
         """Check whether the update originated from the owner."""
@@ -160,7 +173,18 @@ class TelegramBot:
             f"Date: {update.message.date}"
         )
 
-        # Send notification to admin
+        # Send notification to admin, at most once per offending user per
+        # interval so a scripted flood can't spam the owner.
+        now = time.time()
+        last_notified = _last_unauthorized_notify.get(user.id)
+        if (
+            last_notified is not None
+            and now - last_notified < UNAUTHORIZED_NOTIFY_INTERVAL_SECONDS
+        ):
+            logger.debug(f"Skipping admin notification for user {user.id} (throttled)")
+            return
+
+        _last_unauthorized_notify[user.id] = now
         await self._notify_admin_unauthorized_access(update, action)
 
     # Conversation history methods removed - now managed by backend
@@ -528,7 +552,7 @@ Just send me any message and I'll respond using AI!
             # Prepare the request with single input message
             api_request = {
                 "input": message,
-                "model": self.selected_model,
+                "model": self._get_model(conversation_id),
                 "conversation_id": conversation_id,
             }
 
@@ -566,13 +590,15 @@ Just send me any message and I'll respond using AI!
                         f"Backend rejected message with status {response.status_code}"
                     )
 
-        except httpx.TimeoutException:
-            # Fire-and-forget: the backend keeps processing after we stop
-            # waiting, and it delivers the reply via Telegram itself.
+        except httpx.ReadTimeout:
+            # Fire-and-forget: the request was delivered and the backend keeps
+            # processing after we stop waiting; it delivers the reply via
+            # Telegram itself.
             pass
-        except httpx.ConnectError:
-            # Backend is down/unreachable — raise so the handler can tell the
-            # user something went wrong rather than showing nothing at all.
+        except (httpx.TimeoutException, httpx.ConnectError):
+            # Any other timeout (connect/write/pool) means the request never
+            # made it to the backend — raise so the handler can tell the user
+            # something went wrong rather than showing nothing at all.
             logger.error(f"Backend unreachable at {self.app_url}")
             raise
 
@@ -601,10 +627,11 @@ Just send me any message and I'll respond using AI!
                 )
                 return
 
-            reply_markup = self._build_model_keyboard(available_models)
+            current_model = self._get_model(update.message.chat_id)
+            reply_markup = self._build_model_keyboard(available_models, current_model)
 
             message_text = (
-                f"🤖 Current model: **{self.selected_model}**\n\nSelect a model to use:"
+                f"🤖 Current model: **{current_model}**\n\nSelect a model to use:"
             )
 
             await update.message.reply_text(
@@ -622,7 +649,7 @@ Just send me any message and I'll respond using AI!
             )
 
     def _build_model_keyboard(
-        self, available_models: list[str]
+        self, available_models: list[str], current_model: str
     ) -> InlineKeyboardMarkup:
         """Build the model-selection inline keyboard (3 buttons wide)."""
         keyboard = []
@@ -630,7 +657,7 @@ Just send me any message and I'll respond using AI!
 
         for i, model in enumerate(available_models):
             # Add checkmark if this is the current model
-            button_text = f"✅ {model}" if model == self.selected_model else model
+            button_text = f"✅ {model}" if model == current_model else model
             row.append(
                 InlineKeyboardButton(button_text, callback_data=f"model_{model}")
             )
@@ -700,9 +727,13 @@ Just send me any message and I'll respond using AI!
                 await update.callback_query.answer("❌ Invalid model selected")
                 return
 
-            # Update the selected model
-            self.selected_model = selected_model
-            logger.info(f"Authorized user {user_id} set model to {selected_model}")
+            # Update the selected model for this chat only
+            chat_id = update.effective_chat.id if update.effective_chat else user_id
+            self.selected_models[str(chat_id)] = selected_model
+            logger.info(
+                f"Authorized user {user_id} set model to {selected_model} "
+                f"for chat {chat_id}"
+            )
 
             # Answer the callback query
             await update.callback_query.answer(f"✅ Model set to {selected_model}")
@@ -710,9 +741,13 @@ Just send me any message and I'll respond using AI!
             # Update the message to show the new selection, reusing the model
             # list fetched above for validation.
             try:
-                reply_markup = self._build_model_keyboard(available_models)
+                reply_markup = self._build_model_keyboard(
+                    available_models, selected_model
+                )
 
-                message_text = f"🤖 Current model: **{self.selected_model}**\n\nSelect a model to use:"
+                message_text = (
+                    f"🤖 Current model: **{selected_model}**\n\nSelect a model to use:"
+                )
 
                 await update.callback_query.edit_message_text(
                     message_text, reply_markup=reply_markup, parse_mode="Markdown"

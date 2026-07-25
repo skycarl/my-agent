@@ -8,6 +8,7 @@ and managing structured override entries with expiry.
 import json
 import os
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from loguru import logger
@@ -94,6 +95,18 @@ def add_commute_override(
         raise ValueError(
             f"Invalid override_type: '{override_type}'. Must be 'commute_day' or 'remote_day'."
         )
+
+    # Validate dates strictly — expiry filtering compares strings, so a
+    # malformed date (e.g. "July 25") would create a permanent override.
+    for field_name, value in (("date", date), ("expires_after", expires_after)):
+        if value is None:
+            continue
+        try:
+            datetime.strptime(value, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError(
+                f"Invalid {field_name}: '{value}'. Must be a date in YYYY-MM-DD format."
+            )
 
     entry = {
         "id": str(uuid.uuid4())[:8],
