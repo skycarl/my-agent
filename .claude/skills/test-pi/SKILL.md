@@ -14,7 +14,9 @@ Test the my-agent app running on the Raspberry Pi at `192.168.1.247`.
 - **Pi host**: `192.168.1.247` (alias: `pi5` = `ssh sky@192.168.1.247`)
 - **App port**: `8001` (FastAPI)
 - **Base URL**: `http://192.168.1.247:8001`
-- **Auth header**: `X-Token: 123`
+- **Auth header**: `X-Token: $X_TOKEN` — read the value from the local
+  `.env` file (`X_TOKEN=...`); never hard-code it in this file, which is
+  checked into a public repo.
 
 ## Available Endpoints
 
@@ -22,7 +24,7 @@ Test the my-agent app running on the Raspberry Pi at `192.168.1.247`.
 - `GET /healthcheck` — Returns `{"status": "healthy"}`
 - `GET /models` — Returns available models and default model
 
-### Auth required (include `-H "X-Token: 123"`)
+### Auth required (include `-H "X-Token: $X_TOKEN"`)
 - `GET /tasks` — List scheduled tasks. Query params: `only_enabled=true`, `name_filter=...`
 - `POST /tasks` — Create a scheduled task (JSON body)
 - `DELETE /tasks/{task_id}` — Delete a scheduled task
@@ -42,8 +44,9 @@ curl -s http://192.168.1.247:8001/healthcheck | python3 -m json.tool
 # List models
 curl -s http://192.168.1.247:8001/models | python3 -m json.tool
 
-# List tasks
-curl -s -H "X-Token: 123" http://192.168.1.247:8001/tasks | python3 -m json.tool
+# List tasks (load the token from .env rather than typing it inline)
+X_TOKEN="$(grep -E '^X_TOKEN=' .env | cut -d= -f2-)"
+curl -s -H "X-Token: $X_TOKEN" http://192.168.1.247:8001/tasks | python3 -m json.tool
 
 # Check Docker containers on Pi
 ssh sky@192.168.1.247 'docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"'

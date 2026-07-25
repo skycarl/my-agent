@@ -15,7 +15,7 @@ make run-bot          # Start Telegram bot
 make test             # Run all tests
 make test-unit        # Run unit tests only
 make test-app         # Run app service unit tests
-make test-telegram    # Run telegram bot unit tests
+make test-telegram    # Run telegram bot integration tests
 make lint             # Run ruff format + ruff check
 make docker-up        # Build and start all services
 make docker-down      # Stop all services
@@ -42,8 +42,9 @@ Uses the `openai-agents` SDK (`from agents import Agent, Runner, function_tool`)
 
 - **Orchestrator** (`orchestrator_agent.py`) — Triage agent that routes to specialized agents via `handoffs=[...]`. Created per-request with `create_orchestrator_agent(model)`.
 - **Gardener** (`gardener_agent.py`) — Garden management. Uses direct `@function_tool` calls to `app/agents/gardener/garden_service.py`. Tools: `get_plants`, `add_plant`, `get_produce_counts`, `add_produce`.
-- **Commute** (`commute_agent.py`) — Seattle commute info. Uses direct `@function_tool` calls to `app/agents/commute/commute_service.py`. Tools: `get_monorail_hours`, `get_current_date`, `get_recent_alerts`.
+- **Commute** (`commute_agent.py`) — Seattle commute info. Uses direct `@function_tool` calls to `app/agents/commute/commute_service.py` and `preferences_service.py`. Tools: `get_monorail_hours`, `get_current_date`, `get_recent_alerts`, `read_commute_preferences`, `write_commute_preferences`, `get_commute_overrides_tool`, `add_commute_override_tool`, `remove_commute_override_tool`.
 - **Scheduler** (`scheduler_agent.py`) — Converts natural language to scheduled tasks (cron/interval/date). Writes to `storage/scheduled_tasks.json` and reloads APScheduler. Management tools in `app/agents/scheduler/manage_tools.py`.
+- **Workout** (`workout_agent.py`) — Strava-backed workout logs. Fetches activities via `app/agents/workout/strava_client.py` and writes markdown files to `storage/workouts/`. Tools: `get_latest_workout`, `get_workout_by_date`, `list_workouts_on_date`, `update_workout_section`, `get_workout_summary`.
 - **Travel Alerts** (`travel_alerts_agent.py`) — Surfaces travel-relevant alerts/local news for any locale (logistics, weather, safety, planning) using the hosted `WebSearchTool`. Query-driven, e.g. "travel alerts for Rome". Tools: `get_current_date`, `WebSearchTool`.
 
 ### Private Agents/Tools (separate repo)
@@ -79,7 +80,9 @@ All mutating endpoints require `X-Token` header authentication (see `app/core/au
 
 ### Persistent Storage (`storage/`)
 
-JSON file-based storage: `garden_db.json`, `scheduled_tasks.json`, `task_results.json`, `commute_alerts.json`, `conversation_history.json`.
+JSON file-based storage: `garden_db.json`, `scheduled_tasks.json`, `task_results.json`, `commute_alerts.json`, `commute_overrides.json`, `authorized_users.json`, plus `commute_preferences.md` and the `workouts/` markdown directory.
+
+Conversation history is not JSON — it lives in `storage/conversation.db` (SQLite), managed by the Agents SDK session in `app/core/session_manager.py`.
 
 ## Configuration Pattern
 
@@ -117,7 +120,7 @@ When in doubt, write the straightforward thing. You can always refactor later wh
 ## Testing Conventions
 
 - Tests in `tests/unit/`, `tests/integration/`, `tests/e2e/` mirroring source structure
-- Pytest markers: `unit`, `integration`, `e2e`, `slow`, `app`, `telegram`
+- Select tests by path (`tests/unit/`, `tests/integration/`) or via the `make test-*` targets
 - Use `Config.create_test_config()` to create isolated test configs
 - Use `@pytest.mark.asyncio` for async tests
 - Use `@pytest.mark.parametrize` for multiple input/output scenarios

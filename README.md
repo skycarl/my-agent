@@ -15,7 +15,7 @@ The goal of this project is to:
 
 ## Usage
 
-There are 4 main agents:
+There are 6 main agents:
 - The `Orchestrator` agent
    - This agent is the main entry point and decides which specialized agent should handle each request through agent handoffs.
 - The `Gardener` agent
@@ -24,6 +24,10 @@ There are 4 main agents:
    - This agent is responsible for managing my commute.
 - The `Scheduler` agent
    - This agent is responsible for scheduling tasks (e.g., as recurring or one-time prompts)
+- The `Workout` agent
+   - This agent fetches workouts from Strava and maintains a markdown log for each one.
+- The `Travel Alerts` agent
+   - This agent surfaces travel-relevant alerts and local news for a given locale via web search.
 
 ### Gardener
 
@@ -35,7 +39,7 @@ The `Commute` agent focuses on commute-related information for the Seattle area.
 
 ### Scheduler
 
-The `Scheduler` agent converts natural-language instructions into scheduled tasks. It exclusively schedules API calls to `/agent_response`, enabling reminders and recurring prompts to be triggered automatically without manual follow-up. It supports three schedule types—`cron`, `interval`, and one-time `date`—and can also list and delete tasks via `list_scheduled_tasks` and `delete_scheduled_task`.
+The `Scheduler` agent converts natural-language instructions into scheduled tasks. Tasks either call `/agent_response` (so a prompt runs on a schedule) or send a fixed notification straight to Telegram, enabling reminders and recurring prompts to be triggered automatically without manual follow-up. It supports three schedule types—`cron`, `interval`, and one-time `date`—and can also list and delete tasks via `list_scheduled_tasks` and `delete_scheduled_task`.
 
 # Setup
 
@@ -49,7 +53,7 @@ The `Scheduler` agent converts natural-language instructions into scheduled task
 ## Configuration
 This project uses `pydantic-settings` for settings management.
 
-Create **.env** file in root project folder; use the provided `env.example` file as a template. The application settings are managed by `app/core/settings.py` which uses Pydantic BaseSettings for configuration.
+Create **.env** file in root project folder; use the provided `.env.example` file as a template. The application settings are managed by `app/core/settings.py` which uses Pydantic BaseSettings for configuration.
 
 # Telegram Bot integration
 

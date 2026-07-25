@@ -43,7 +43,6 @@ make test
 # Run specific test types
 make test-unit
 make test-integration
-make test-e2e
 
 # Run tests for specific services
 make test-app
@@ -51,9 +50,8 @@ make test-telegram
 
 # Run with pytest directly
 uv run pytest tests/unit/app/           # App unit tests only
+uv run pytest tests/unit/                # All unit tests
 uv run pytest tests/integration/        # Integration tests only
-uv run pytest -m "unit"                 # All unit tests
-uv run pytest -m "integration"          # All integration tests
 ```
 
 ## Test Conventions
@@ -63,14 +61,10 @@ uv run pytest -m "integration"          # All integration tests
 - Test classes should be named `Test*`
 - Test functions should be named `test_*`
 
-### Markers
-Use pytest markers to categorize tests:
-- `@pytest.mark.unit` - Unit tests
-- `@pytest.mark.integration` - Integration tests
-- `@pytest.mark.e2e` - End-to-end tests
-- `@pytest.mark.slow` - Tests that take longer to run
-- `@pytest.mark.app` - App service tests
-- `@pytest.mark.telegram` - Telegram bot tests
+### Test Selection
+Tests are categorized by directory, not by marker — select them by path
+(`tests/unit/`, `tests/integration/`, `tests/unit/app/`) or via the `make`
+targets above.
 
 ### Fixtures
 - Shared fixtures are defined in `conftest.py`
@@ -95,8 +89,6 @@ Use pytest markers to categorize tests:
 import pytest
 from unittest.mock import Mock, patch
 
-@pytest.mark.unit
-@pytest.mark.app
 def test_feature_functionality():
     """Test that feature works correctly."""
     # Arrange
@@ -108,7 +100,6 @@ def test_feature_functionality():
     # Assert
     assert result == expected_result
 
-@pytest.mark.integration
 def test_service_communication():
     """Test communication between services."""
     # Test service integration

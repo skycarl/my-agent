@@ -41,7 +41,7 @@ jobs:
       run: |
         uv run pytest
       env:
-        X_TOKEN: 123
+        X_TOKEN: ci-test-token-not-a-real-secret
         OPENAI_API_KEY: ""
         TELEGRAM_BOT_TOKEN: ""
         APP_URL: "http://localhost:8000"
