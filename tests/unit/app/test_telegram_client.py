@@ -223,6 +223,45 @@ class TestSplitMessage:
         for chunk in chunks:
             assert len(chunk) <= TelegramClient.MAX_MESSAGE_LENGTH
 
+    def test_custom_max_length_respected(self):
+        msg = "word " * 200
+        chunks = self.client._split_message(msg, 100)
+        assert len(chunks) > 1
+        for chunk in chunks:
+            assert len(chunk) <= 100
+
+
+class TestMarkdownChunksFitAfterConversion:
+    """Regression: markdown split then converted must still fit Telegram's limit.
+
+    Converting to HTML only grows the text (escaping &/</>, <b> tags, link
+    expansion), so splitting the raw markdown at the full 4096 limit produced
+    chunks that Telegram rejected with a 400 — and send_message bails on the
+    first failure, so the user received nothing at all.
+    """
+
+    def setup_method(self):
+        self.client = TelegramClient.__new__(TelegramClient)
+
+    @pytest.mark.parametrize(
+        "unit",
+        [
+            "**bold heading here** and text with & ampersands and <angles> ",
+            "[a link](https://example.com/some/path) & more text ",
+            "plain text with lots of & and < and > characters everywhere ",
+        ],
+    )
+    def test_converted_chunks_within_limit(self, unit):
+        raw = unit * 200
+        assert len(raw) > TelegramClient.MAX_MESSAGE_LENGTH
+
+        raw_chunks = self.client._split_message(
+            raw, TelegramClient.MAX_MESSAGE_LENGTH // 2
+        )
+        for chunk in raw_chunks:
+            converted = markdown_to_telegram_html(chunk)
+            assert len(converted) <= TelegramClient.MAX_MESSAGE_LENGTH
+
 
 def _make_response(status_code: int, json_data: dict) -> Mock:
     response = Mock()

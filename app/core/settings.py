@@ -241,11 +241,5 @@ def get_config() -> Config:
     return _config
 
 
-def reset_config():
-    """Reset the global config instance. Used for testing."""
-    global _config
-    _config = None
-
-
 # Create the global config instance
 config = get_config()

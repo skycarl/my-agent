@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import re
+from email.utils import parseaddr
 from pathlib import Path
 from typing import List, Optional
 
@@ -71,6 +72,18 @@ def _get_conversation_lock(conversation_id: str) -> asyncio.Lock:
 _alert_uids_in_flight: set[str] = set()
 
 
+def _read_alerts_file(alerts_file: Path) -> list:
+    """Read the stored alerts list, tolerating a missing or corrupt file."""
+    if not alerts_file.exists():
+        return []
+    try:
+        with open(alerts_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError) as e:
+        logger.warning(f"Error reading existing alerts file: {e}")
+        return []
+
+
 def _sanitize_alert_body(body: str, max_length: int = 2000) -> str:
     """Strip URLs, HTML tags, and truncate body for safe agent processing."""
     body = re.sub(r"https?://\S+", "[link removed]", body)
@@ -109,14 +122,6 @@ class AgentRequest(BaseModel):
             raise ValueError("Must provide either 'input' or 'messages'")
         if self.messages is not None and len(self.messages) == 0:
             raise ValueError("If providing 'messages', the list cannot be empty")
-
-
-class AgentResponse(BaseModel):
-    """Response model for the agent_response endpoint."""
-
-    response: str  # The final agent response
-    agent_name: str  # Name of the agent that handled the request
-    success: bool  # Whether the request was successful
 
 
 class HealthResponse(BaseModel):
@@ -441,21 +446,24 @@ async def create_agent_response(request_body: AgentRequest, request: Request):
         logger.debug("Running agent workflow with Orchestrator")
         is_scheduled = request.headers.get("X-Scheduled-Task") == "true"
 
-        # Serialize runs per conversation: a second message arriving while the
-        # first run is in flight would otherwise share the same SQLite session
-        # concurrently and interleave history.
-        async with _get_conversation_lock(conversation_id):
-            if is_scheduled:
-                logger.debug(
-                    "Scheduled task invocation — running without conversation session"
-                )
-                result = await Runner.run(
-                    orchestrator_agent,
-                    input=agent_input,
-                    max_turns=10,
-                    run_config=RunConfig(workflow_name="scheduled_task"),
-                )
-            else:
+        if is_scheduled:
+            # No session is used here, so there is nothing to serialize —
+            # taking the conversation lock would block the owner's
+            # interactive messages for the whole run.
+            logger.debug(
+                "Scheduled task invocation — running without conversation session"
+            )
+            result = await Runner.run(
+                orchestrator_agent,
+                input=agent_input,
+                max_turns=10,
+                run_config=RunConfig(workflow_name="scheduled_task"),
+            )
+        else:
+            # Serialize runs per conversation: a second message arriving while
+            # the first run is in flight would otherwise share the same SQLite
+            # session concurrently and interleave history.
+            async with _get_conversation_lock(conversation_id):
                 session = get_session(conversation_id)
                 result = await Runner.run(
                     orchestrator_agent,
@@ -537,11 +545,9 @@ async def create_agent_response(request_body: AgentRequest, request: Request):
             conversation_id = request_body.conversation_id or str(config.owner_user_id)
             target_user_id = int(conversation_id) if conversation_id else None
             if target_user_id:
-                error_message = (
-                    f"Sorry, I encountered an error processing your request: {str(e)}"
-                )
-                # Plain text: exception text can contain <, >, & that would
-                # make Telegram reject an HTML-parsed message.
+                # Generic text: the exception is already logged above, and in a
+                # group chat this message is broadcast to every member.
+                error_message = "Sorry, I encountered an error processing your request."
                 await telegram_client.telegram_client.send_message(
                     user_id=target_user_id,
                     message=error_message,
@@ -556,7 +562,7 @@ async def create_agent_response(request_body: AgentRequest, request: Request):
             status_code=500,
             content={
                 "success": False,
-                "message": f"Failed to process message: {str(e)}",
+                "message": "Failed to process message",
             },
         )
 
@@ -592,14 +598,7 @@ async def process_alert(request: AlertRequest):
         alerts_file = Path(config.commute_alerts_path)
         alerts_file.parent.mkdir(exist_ok=True)
 
-        alerts = []
-        if alerts_file.exists():
-            try:
-                with open(alerts_file, "r", encoding="utf-8") as f:
-                    alerts = json.load(f)
-            except (json.JSONDecodeError, FileNotFoundError) as e:
-                logger.warning(f"Error reading existing alerts file: {e}")
-                alerts = []
+        alerts = _read_alerts_file(alerts_file)
 
         # UID deduplication check (.get: a single legacy record without a uid
         # must not 500 every future alert). The in-flight set catches the same
@@ -622,8 +621,12 @@ async def process_alert(request: AlertRequest):
         allowed_patterns = [
             p.strip() for p in config.email_sender_patterns.split(",") if p.strip()
         ]
+        # Match the parsed address only. A raw-header substring test would
+        # accept a spoofed display name such as
+        # '"alerts@transit.gov" <someone@example.com>'.
+        sender_address = parseaddr(request.sender)[1].lower()
         if allowed_patterns and not any(
-            pattern in request.sender for pattern in allowed_patterns
+            pattern.lower() in sender_address for pattern in allowed_patterns
         ):
             logger.warning(f"Alert from unauthorized sender: {request.sender}")
             raise HTTPException(status_code=403, detail="Sender not in allowlist")
@@ -762,6 +765,12 @@ async def process_alert(request: AlertRequest):
                 },
             )
 
+        # Re-read before mutating: the snapshot above was taken before a
+        # multi-second agent run, and the daily cleanup job may have pruned
+        # old alerts in the meantime. Writing the stale snapshot back would
+        # resurrect them.
+        alerts = _read_alerts_file(alerts_file)
+
         # Create the alert record with agent metadata (uses original body)
         alert_record = {
             "id": f"alert_{len(alerts) + 1}_{request.uid}",
@@ -845,7 +854,7 @@ async def process_alert(request: AlertRequest):
         # Return error response
         error_response = AlertResponse(
             success=False,
-            message=f"Failed to process alert: {str(e)}",
+            message="Failed to process alert",
             alert_id="",
             agent_processing=agent_metadata,
         )

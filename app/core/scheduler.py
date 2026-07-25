@@ -22,8 +22,8 @@ from app.core.task_store import get_config_lock_path, _write_storage_file
 from app.models.tasks import TaskConfig, TasksConfiguration
 from app.core.timezone_utils import (
     now_local_isoformat,
-    get_scheduler_timezone,
     ensure_timezone,
+    parse_datetime_in_scheduler_tz,
 )
 
 
@@ -229,9 +229,10 @@ class SchedulerService:
                     )
                     return False
 
-                run_at = ensure_timezone(task.schedule.run_at)
-                # Convert to scheduler timezone to avoid surprises
-                run_at = run_at.astimezone(get_scheduler_timezone())
+                # Same interpretation the write path uses (task_store), so a
+                # hand-edited naive run_at doesn't fire at a different wall
+                # clock than the one the API would have scheduled.
+                run_at = parse_datetime_in_scheduler_tz(task.schedule.run_at)
 
                 trigger = DateTrigger(
                     run_date=run_at, timezone=config.scheduler_timezone

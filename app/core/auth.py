@@ -19,8 +19,13 @@ async def verify_token(x_token: str = Header(alias="X-Token")):
             status_code=503, detail="Server authentication token is not configured"
         )
 
-    # Constant-time comparison to avoid leaking the token via timing
-    if not secrets.compare_digest(x_token, config.x_token):
+    # Constant-time comparison to avoid leaking the token via timing.
+    # Compared as bytes: Starlette decodes headers as latin-1, and
+    # compare_digest raises TypeError on non-ASCII str operands, which would
+    # turn a bad token into an unhandled 500 instead of a 401.
+    if not secrets.compare_digest(
+        x_token.encode("utf-8"), config.x_token.encode("utf-8")
+    ):
         logger.warning("Authentication failed: token mismatch")
         raise HTTPException(status_code=401, detail="Invalid authentication token")
 

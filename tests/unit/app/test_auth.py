@@ -39,6 +39,20 @@ async def test_verify_token_invalid(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_verify_token_non_ascii_rejected_cleanly(monkeypatch):
+    """A non-ASCII token yields 401, not an unhandled TypeError/500.
+
+    Starlette decodes headers as latin-1, so a client can put non-ASCII
+    characters in X-Token; comparing those as str raises TypeError.
+    """
+    monkeypatch.setattr(config, "x_token", "test-token")
+    with pytest.raises(HTTPException) as exc_info:
+        await verify_token("tëst-tokèn\xff")
+
+    assert exc_info.value.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_verify_token_rejects_all_when_unconfigured(monkeypatch):
     """With no X_TOKEN configured, every request is rejected (fail closed)."""
     monkeypatch.setattr(config, "x_token", "")
