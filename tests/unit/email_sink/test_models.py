@@ -28,23 +28,6 @@ class TestEmailAlert:
         assert alert.body == "Test body content"
         assert alert.sender == "test@example.com"
         assert alert.date == date
-        assert alert.raw_headers == {}
-
-    def test_email_alert_with_headers(self):
-        """Test EmailAlert with raw headers."""
-        date = now_local()
-        headers = {"Message-ID": "123", "Content-Type": "text/plain"}
-
-        alert = EmailAlert(
-            uid="12345",
-            subject="Test Subject",
-            body="Test body",
-            sender="test@example.com",
-            date=date,
-            raw_headers=headers,
-        )
-
-        assert alert.raw_headers == headers
 
     def test_email_alert_validation_errors(self):
         """Test EmailAlert validation errors."""

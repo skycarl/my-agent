@@ -2,6 +2,7 @@
 Telegram bot implementation using python-telegram-bot library.
 """
 
+import asyncio
 import base64
 import subprocess
 import time
@@ -38,11 +39,12 @@ class TelegramMessage(BaseModel):
     username: str | None = None
 
 
-# API classes removed - using simple dict format for fire-and-forget calls
-
 # Throttle admin DMs about unauthorized access: at most one notification per
 # offending user per interval. Every attempt is still logged.
 UNAUTHORIZED_NOTIFY_INTERVAL_SECONDS = 3600
+
+# Cap on attacker-controlled message text echoed into logs and admin DMs.
+MAX_LOGGED_MESSAGE_CHARS = 500
 _last_unauthorized_notify: dict[int, float] = {}
 
 
@@ -54,7 +56,6 @@ class TelegramBot:
         self.app_url = config.app_url
         self.x_token = config.x_token
         self.owner_user_id = config.owner_user_id
-        self.max_conversation_history = config.max_conversation_history
         self.default_model: str = config.default_model
         # Model selection is per-chat so one chat changing it doesn't affect
         # others; keyed by str(chat_id), falling back to the default model.
@@ -77,10 +78,12 @@ class TelegramBot:
 
     def _is_authorized(self, update: Update) -> bool:
         """Check whether the user/chat behind this update may use the bot."""
-        message = update.effective_message
         user = update.effective_user
         chat = update.effective_chat
-        if not message or not user or not chat:
+        # Deliberately not requiring effective_message: it is None for button
+        # presses on messages older than 48h (InaccessibleMessage), which
+        # would otherwise silently deauthorize the owner's own keyboards.
+        if not user or not chat:
             return False
         if user.is_bot:
             return False
@@ -105,15 +108,17 @@ class TelegramBot:
             )
             return
 
-        if not update.message or not update.message.from_user:
+        user = update.effective_user
+        chat = update.effective_chat
+        if not user or not chat:
             logger.warning(
                 "Cannot send admin notification: incomplete user information"
             )
             return
 
         try:
-            user = update.message.from_user
-            chat = update.message.chat
+            message = update.effective_message
+            message_text = (message.text if message else None) or "N/A"
 
             # Format the notification message. Sent as plain text: the message
             # and username are attacker-controlled, and unbalanced Markdown
@@ -127,9 +132,11 @@ class TelegramBot:
                 + "\n"
                 f"Chat ID: {chat.id}\n"
                 f"Chat Type: {chat.type}\n"
-                f"Message: {update.message.text or 'N/A'}\n"
-                f"Date: {update.message.date}\n"
-                f"Message ID: {update.message.message_id}"
+                # Truncated: the sender controls this text, and a message near
+                # Telegram's 4096-char limit would make this notification
+                # itself too long to send — while the throttle timestamp is
+                # already recorded, silencing that user for the whole interval.
+                f"Message: {message_text[:MAX_LOGGED_MESSAGE_CHARS]}"
             )
 
             # Send notification to owner
@@ -151,14 +158,19 @@ class TelegramBot:
         self, update: Update, action: str = "message"
     ) -> None:
         """Log detailed information about unauthorized access attempts and notify admin."""
-        if not update.message or not update.message.from_user:
+        # effective_*, not update.message: callback queries have no .message,
+        # so keying off it reported every button press as "incomplete user
+        # information" and never notified the owner about real ones.
+        user = update.effective_user
+        chat = update.effective_chat
+        if not user or not chat:
             logger.warning(
                 f"Unauthorized {action} attempt with incomplete user information"
             )
             return
 
-        user = update.message.from_user
-        chat = update.message.chat
+        message = update.effective_message
+        message_text = (message.text if message else None) or "N/A"
 
         logger.warning(
             f"UNAUTHORIZED ACCESS ATTEMPT - {action.upper()}: "
@@ -168,9 +180,7 @@ class TelegramBot:
             f"Last Name: {user.last_name}, "
             f"Chat ID: {chat.id}, "
             f"Chat Type: {chat.type}, "
-            f"Message: '{update.message.text}', "
-            f"Message ID: {update.message.message_id}, "
-            f"Date: {update.message.date}"
+            f"Message: '{message_text[:MAX_LOGGED_MESSAGE_CHARS]}'"
         )
 
         # Send notification to admin, at most once per offending user per
@@ -184,10 +194,18 @@ class TelegramBot:
             logger.debug(f"Skipping admin notification for user {user.id} (throttled)")
             return
 
+        # Drop entries whose throttle window has passed, so the dict doesn't
+        # grow one entry per probing user for the process lifetime.
+        expired = [
+            uid
+            for uid, ts in _last_unauthorized_notify.items()
+            if now - ts >= UNAUTHORIZED_NOTIFY_INTERVAL_SECONDS
+        ]
+        for uid in expired:
+            del _last_unauthorized_notify[uid]
+
         _last_unauthorized_notify[user.id] = now
         await self._notify_admin_unauthorized_access(update, action)
-
-    # Conversation history methods removed - now managed by backend
 
     async def start_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -285,7 +303,9 @@ Just send me any message and I'll respond using AI!
         logger.info(f"Authorized user {user_id} ({username}) requested version info")
 
         app_version = pkg_version("my-agent")
-        commit, message = self._get_git_info()
+        # Offloaded: _get_git_info shells out to git (up to 10s of blocking
+        # subprocess calls) whenever GIT_COMMIT isn't baked into the env.
+        commit, message = await asyncio.to_thread(self._get_git_info)
         short_commit = commit[:7] if len(commit) > 7 else commit
 
         version_text = (

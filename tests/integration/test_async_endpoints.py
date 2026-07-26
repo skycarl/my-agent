@@ -193,10 +193,14 @@ class TestAsyncEndpoints:
             assert response.status_code == 500
             data = response.json()
             assert data["success"] is False
-            assert "Test error" in data["message"]
+            # The internal exception text must not reach the caller
+            assert "Test error" not in data["message"]
 
-            # Should still try to send error message via Telegram
+            # Should still try to send error message via Telegram, also
+            # without leaking the exception text
             mock_telegram_client.send_message.assert_called_once()
+            sent_message = mock_telegram_client.send_message.call_args.kwargs["message"]
+            assert "Test error" not in sent_message
 
     def test_process_alert_endpoint_success(
         self,

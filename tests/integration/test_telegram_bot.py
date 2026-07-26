@@ -22,8 +22,9 @@ def make_update(
     update.message.from_user.id = user_id
     update.message.from_user.username = username
     update.message.chat_id = chat_id
-    if text is not None:
-        update.message.text = text
+    # Always a real str or None, like the Telegram API returns — an auto-Mock
+    # here would let string handling bugs pass unnoticed.
+    update.message.text = text
     update.effective_message = update.message
     update.effective_user.id = user_id
     update.effective_user.is_bot = is_bot
@@ -111,7 +112,6 @@ class TestTelegramBot:
             assert bot.token == "test_token"
             assert bot.app_url == "http://localhost:8000"
             assert bot.x_token == "test_x_token"
-            assert bot.max_conversation_history == 10
             assert bot.owner_user_id == 123
 
     @pytest.mark.asyncio

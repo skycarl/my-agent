@@ -4,6 +4,7 @@ Task manager for executing scheduled tasks and handling results.
 
 import json
 import asyncio
+import os
 from datetime import timedelta
 import uuid
 import httpx
@@ -41,8 +42,8 @@ class TaskManager:
                 with open(results_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 return TaskResultsStorage(**data)
-            except (json.JSONDecodeError, Exception) as e:
-                logger.warning(f"Error loading task results file: {e}")
+            except Exception as e:
+                logger.error(f"Error loading task results file: {e}")
                 # Create new storage if file is corrupted
                 return TaskResultsStorage()
         else:
@@ -55,14 +56,20 @@ class TaskManager:
         results_file.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            with open(results_file, "w", encoding="utf-8") as f:
-                json.dump(
+            # Write to a temp file and rename: a crash mid-write would
+            # otherwise leave truncated JSON, which _load_results_storage
+            # discards wholesale on the next start.
+            tmp_file = results_file.with_suffix(".json.tmp")
+            tmp_file.write_text(
+                json.dumps(
                     self.results_storage.model_dump(),
-                    f,
                     indent=2,
                     ensure_ascii=False,
                     default=str,  # Handle datetime serialization
-                )
+                ),
+                encoding="utf-8",
+            )
+            os.replace(tmp_file, results_file)
         except Exception as e:
             logger.error(f"Failed to save task results: {e}")
 
@@ -311,23 +318,13 @@ class TaskManager:
 
             async with httpx.AsyncClient() as client:
                 await client.post(
-                    f"{config.app_url}/send_telegram_message",
+                    f"{config.app_url.rstrip('/')}/send_telegram_message",
                     json=telegram_request.model_dump(),
                     headers=headers,
                     timeout=30.0,
                 )
         except Exception as e:
             logger.error(f"Error sending error notification: {e}")
-
-    def get_task_results(self, task_id: str, limit: int = 10) -> list:
-        """Get recent results for a specific task."""
-        return self.results_storage.get_results_for_task(task_id, limit)
-
-    def get_all_recent_results(self, limit: int = 50) -> list:
-        """Get recent results for all tasks."""
-        return sorted(
-            self.results_storage.results, key=lambda x: x.started_at, reverse=True
-        )[:limit]
 
 
 # Create a global task manager instance

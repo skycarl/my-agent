@@ -76,15 +76,24 @@ class EmailMonitorService:
 
         try:
             with EmailClient() as email_client:
-                # Check each configured email sink
+                # UIDs handled in this cycle. Sender patterns can overlap (e.g.
+                # "alerts@" and "@transit.gov" both match one sender), and a
+                # message left unread by a failed POST would otherwise be
+                # fetched and re-POSTed by the next matching config.
+                seen_uids: set[str] = set()
                 for sink_config in self.email_configs:
-                    await self._process_sink_config(email_client, sink_config)
+                    await self._process_sink_config(
+                        email_client, sink_config, seen_uids
+                    )
 
         except Exception as e:
             logger.error(f"Error during email check: {e}")
 
     async def _process_sink_config(
-        self, email_client: EmailClient, sink_config: EmailSinkConfig
+        self,
+        email_client: EmailClient,
+        sink_config: EmailSinkConfig,
+        seen_uids: set[str],
     ) -> None:
         """Process emails for a specific sink configuration."""
         try:
@@ -92,6 +101,7 @@ class EmailMonitorService:
             messages = email_client.get_unread_messages_from_sender(
                 sink_config.sender_pattern
             )
+            messages = [(uid, raw) for uid, raw in messages if uid not in seen_uids]
 
             if not messages:
                 return
@@ -101,6 +111,7 @@ class EmailMonitorService:
             )
 
             for uid, raw_message in messages:
+                seen_uids.add(uid)
                 try:
                     # Parse the email
                     alert = EmailParser.parse_raw_message(uid, raw_message)
@@ -149,7 +160,7 @@ class EmailMonitorService:
 
         Args:
             alert: EmailAlert object
-            endpoint: API endpoint path (e.g., "/commute_alert")
+            endpoint: API endpoint path (e.g., "/process_alert")
 
         Returns:
             "success" if accepted, "rejected" for a permanent rejection (403),

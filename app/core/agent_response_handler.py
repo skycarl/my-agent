@@ -76,15 +76,12 @@ class AgentResponseHandler:
     def _sanitize_telegram_html(text: str) -> str:
         """Sanitize text for safe Telegram HTML delivery.
 
-        Strips all HTML tags (Telegram only supports a limited subset and
-        notifications don't need any of them) and escapes HTML special
-        characters to prevent injection from agent responses.
+        Escaping is sufficient to neutralize any markup from agent responses.
+        Stripping <...> spans first would also delete ordinary prose such as
+        "delay is < 10 min but > 5 min", which Telegram renders fine once
+        escaped.
         """
-        sanitized = re.sub(r"<[^>]+>", "", text)
-        sanitized = (
-            sanitized.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        )
-        return sanitized
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     @staticmethod
     async def process_agent_response(response: str) -> Tuple[str, Dict]:
@@ -207,8 +204,13 @@ class AgentResponseHandler:
             return True, response
 
         if not metadata["json_valid"]:
-            # Invalid JSON - return original response
-            return True, response
+            # Malformed JSON block: return the surrounding prose but drop the
+            # <json>...</json> blob, which is machine plumbing the user
+            # should never see.
+            stripped = re.sub(
+                r"<json>.*?</json>", "", response, flags=re.DOTALL
+            ).strip()
+            return True, stripped or response
 
         # Valid JSON with notification decision
         notify_user = metadata["notification_decision"]["notify_user"]

@@ -1,8 +1,14 @@
 /venv
 /.venv
-poetry.lock
-test.db
 /media
 # Never bake live data into the image: the container must only ever see the
 # bind-mounted storage dir (STORAGE_PATH), not a stale build-time snapshot.
 /storage
+# Secrets must never end up in an image layer, where they survive rotation
+# and are readable by anyone who can pull the image. Config reaches the
+# containers via docker-compose's env_file instead.
+.env
+.env.*
+!.env.example
+# Build context hygiene: the full history is large and not needed at runtime.
+.git

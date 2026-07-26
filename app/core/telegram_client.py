@@ -105,31 +105,33 @@ class TelegramClient:
     # Telegram API limit for message text
     MAX_MESSAGE_LENGTH = 4096
 
-    def _split_message(self, message: str) -> list[str]:
+    def _split_message(self, message: str, max_length: int | None = None) -> list[str]:
         """Split a message into chunks that fit within Telegram's limit.
 
         Splits on newlines first, then on spaces, to avoid breaking mid-word.
         """
-        if len(message) <= self.MAX_MESSAGE_LENGTH:
+        max_length = max_length or self.MAX_MESSAGE_LENGTH
+
+        if len(message) <= max_length:
             return [message]
 
         chunks = []
         remaining = message
         while remaining:
-            if len(remaining) <= self.MAX_MESSAGE_LENGTH:
+            if len(remaining) <= max_length:
                 chunks.append(remaining)
                 break
 
             # Try to split at a newline within the limit. A break point at
             # index 0 would produce an empty chunk and no progress (infinite
             # loop), so search from index 1.
-            split_pos = remaining.rfind("\n", 1, self.MAX_MESSAGE_LENGTH)
+            split_pos = remaining.rfind("\n", 1, max_length)
             if split_pos <= 0:
                 # No newline found, try a space
-                split_pos = remaining.rfind(" ", 1, self.MAX_MESSAGE_LENGTH)
+                split_pos = remaining.rfind(" ", 1, max_length)
             if split_pos <= 0:
                 # No good break point, hard cut
-                split_pos = self.MAX_MESSAGE_LENGTH
+                split_pos = max_length
 
             chunks.append(remaining[:split_pos])
             remaining = remaining[split_pos:].lstrip("\n ")
@@ -165,8 +167,12 @@ class TelegramClient:
             self.validate_configuration()
 
             if markdown:
-                # Split raw markdown, then convert each chunk to HTML
-                raw_chunks = self._split_message(message)
+                # Split raw markdown, then convert each chunk to HTML.
+                # Conversion only ever grows the text (escaping "&"/"<"/">",
+                # wrapping "**x**" in <b> tags, expanding links), so split
+                # against a smaller budget or the converted chunk overflows
+                # Telegram's limit and the whole send is rejected.
+                raw_chunks = self._split_message(message, self.MAX_MESSAGE_LENGTH // 2)
                 chunks = [markdown_to_telegram_html(c) for c in raw_chunks]
                 parse_mode = "HTML"
             else:

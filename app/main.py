@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from loguru import logger
 
@@ -41,12 +41,9 @@ async def lifespan(app: FastAPI):
         logger.error(f"Error closing session: {e}")
 
 
-root_router = APIRouter()
-
 app = FastAPI(title="My agent backend", lifespan=lifespan)
 
 app.include_router(main_router)
-app.include_router(root_router)
 
 init_logging()
 

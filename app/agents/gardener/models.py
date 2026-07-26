@@ -9,7 +9,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Dict, List, Optional
 from loguru import logger
-from pydantic import BaseModel, Field, computed_field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, computed_field, field_validator
 from app.core.timezone_utils import now_local
 
 
@@ -30,10 +30,6 @@ class Harvest(BaseModel):
             raise ValueError("Yield amount must be positive")
         return v
 
-    model_config = ConfigDict(
-        json_encoders={datetime: lambda v: v.isoformat(), Decimal: str}
-    )
-
 
 class Plant(BaseModel):
     """Represents a plant in the garden with its harvests."""
@@ -52,10 +48,6 @@ class Plant(BaseModel):
     def add_harvest(self, harvest: Harvest) -> None:
         """Add a new harvest."""
         self.harvests.append(harvest)
-
-    model_config = ConfigDict(
-        json_encoders={datetime: lambda v: v.isoformat(), Decimal: str}
-    )
 
 
 class GardenDB(BaseModel):
@@ -145,7 +137,3 @@ class GardenDB(BaseModel):
         elif isinstance(obj, Decimal):
             return str(obj)
         return obj
-
-    model_config = ConfigDict(
-        json_encoders={datetime: lambda v: v.isoformat(), Decimal: str}
-    )

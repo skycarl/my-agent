@@ -155,8 +155,12 @@ def get_full_commute_context() -> str:
     if overrides:
         parts.append("### Active Overrides")
         for o in overrides:
+            # .get throughout: this file is hand-editable, and this runs on
+            # the /process_alert path, so one malformed entry would otherwise
+            # 500 every incoming alert rather than just its own line.
             parts.append(
-                f"- {o['date']}: {o['type']} — {o.get('note', '')} (expires after {o['expires_after']})"
+                f"- {o.get('date', '?')}: {o.get('type', '?')} — {o.get('note', '')} "
+                f"(expires after {o.get('expires_after', '?')})"
             )
     else:
         parts.append("### Active Overrides\nNo active overrides.")

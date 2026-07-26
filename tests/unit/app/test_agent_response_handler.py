@@ -264,3 +264,39 @@ class TestAgentResponseHandler:
 
         assert should_respond is True
         assert message == "Test response for user"
+
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            # Regression: stripping <...> spans before escaping deleted real
+            # prose. Escaping alone is enough to make the text safe.
+            (
+                "Delay is < 10 min but > 5 min on Line 1",
+                "Delay is &lt; 10 min but &gt; 5 min on Line 1",
+            ),
+            ("A <-> B", "A &lt;-&gt; B"),
+            ("Tom &amp; Jerry", "Tom &amp;amp; Jerry"),
+            (
+                "<script>alert('x')</script>",
+                "&lt;script&gt;alert('x')&lt;/script&gt;",
+            ),
+        ],
+    )
+    def test_sanitize_telegram_html_preserves_text(self, text, expected):
+        """Angle brackets in prose survive sanitization, escaped not deleted."""
+        assert AgentResponseHandler._sanitize_telegram_html(text) == expected
+
+    @pytest.mark.asyncio
+    async def test_user_query_response_strips_malformed_json_block(self):
+        """A malformed <json> blob is not shown to the user verbatim."""
+        response = "Here is your answer.\n<json>{not valid json,,,}</json>"
+
+        (
+            should_respond,
+            message,
+        ) = await AgentResponseHandler.process_user_query_response(response)
+
+        assert should_respond is True
+        assert "<json>" not in message
+        assert "not valid json" not in message
+        assert "Here is your answer." in message
