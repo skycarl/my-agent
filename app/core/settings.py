@@ -24,6 +24,9 @@ class Config(BaseSettings):
     # Valid OpenAI models that can be used
     valid_openai_models: list[str] = Field(
         default=[
+            "gpt-5.6-terra",
+            "gpt-5.6-sol",
+            "gpt-5.6-luna",
             "gpt-5.5",
             "gpt-5.4",
             "gpt-5.2",
@@ -37,18 +40,23 @@ class Config(BaseSettings):
 
     # Default model to use when no specific model is provided
     default_model: str = Field(
-        default="gpt-5.5", description="Default OpenAI model to use for agents"
+        default="gpt-5.6-terra", description="Default OpenAI model to use for agents"
     )
 
-    # Per-agent reasoning effort (valid: none, low, medium, high, xhigh)
+    # Reasoning effort used for agents with no entry in agent_reasoning_effort
+    default_reasoning_effort: str = Field(
+        default="high",
+        description="Default reasoning effort. Valid: none, low, medium, high, xhigh, max",
+    )
+
+    # Per-agent overrides of default_reasoning_effort
     agent_reasoning_effort: dict[str, str] = Field(
         default={
             "commute": "medium",
             "scheduler": "medium",
             "alert_processor": "medium",
-            "travel_alerts": "high",
         },
-        description="Reasoning effort per agent. Valid: none, low, medium, high, xhigh",
+        description="Reasoning effort per agent. Valid: none, low, medium, high, xhigh, max",
     )
 
     # OpenAI API timeout and retry configuration
@@ -219,10 +227,10 @@ class Config(BaseSettings):
 
 
 def get_model_settings_for_agent(agent_name: str):
-    """Get ModelSettings with reasoning effort for a specific agent, or None for SDK defaults."""
-    effort = config.agent_reasoning_effort.get(agent_name)
-    if effort is None:
-        return None
+    """Get ModelSettings with reasoning effort for a specific agent."""
+    effort = config.agent_reasoning_effort.get(
+        agent_name, config.default_reasoning_effort
+    )
     from agents import ModelSettings
     from openai.types import Reasoning
 

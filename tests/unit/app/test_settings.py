@@ -21,6 +21,9 @@ def test_config_defaults():
 
     # Test valid OpenAI models default
     expected_models = [
+        "gpt-5.6-terra",
+        "gpt-5.6-sol",
+        "gpt-5.6-luna",
         "gpt-5.5",
         "gpt-5.4",
         "gpt-5.2",
@@ -32,7 +35,7 @@ def test_config_defaults():
     assert config.valid_openai_models == expected_models
 
     # Test default model
-    assert config.default_model == "gpt-5.5"
+    assert config.default_model == "gpt-5.6-terra"
 
     # Test Telegram bot token default
     assert config.telegram_bot_token == ""
@@ -45,14 +48,14 @@ def test_config_defaults():
 
 
 def test_config_default_agent_reasoning_effort():
-    """Test that agent_reasoning_effort has correct defaults."""
+    """Test that reasoning effort defaults to high, with per-agent overrides."""
     config = Config.create_test_config()
 
+    assert config.default_reasoning_effort == "high"
     assert config.agent_reasoning_effort == {
         "commute": "medium",
         "scheduler": "medium",
         "alert_processor": "medium",
-        "travel_alerts": "high",
     }
 
 

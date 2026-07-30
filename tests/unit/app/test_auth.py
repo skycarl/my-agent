@@ -77,7 +77,7 @@ def test_models_endpoint(monkeypatch):
     data = response.json()
     assert "models" in data
     assert "default_model" in data
-    assert data["default_model"] == "gpt-5.5"
+    assert data["default_model"] == "gpt-5.6-terra"
     assert isinstance(data["models"], list)
     assert len(data["models"]) > 0
 
