@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from decimal import Decimal
 
+from tests.helpers import tool_context
 from app.agents.alert_processor_agent import (
     AlertDecision,
     create_alert_processor_agent,
@@ -138,7 +139,7 @@ class TestGardenToolDirectCalls:
         ):
             from app.agents.gardener_agent import get_plants
 
-            result = await get_plants.on_invoke_tool(None, "")
+            result = await get_plants.on_invoke_tool(tool_context(), "")
             assert "plants" in result
 
     @pytest.mark.asyncio
@@ -150,7 +151,9 @@ class TestGardenToolDirectCalls:
         ):
             from app.agents.gardener_agent import add_plant
 
-            result = await add_plant.on_invoke_tool(None, '{"plant_name": "basil"}')
+            result = await add_plant.on_invoke_tool(
+                tool_context(), '{"plant_name": "basil"}'
+            )
             assert "added successfully" in result
 
     @pytest.mark.asyncio
@@ -168,7 +171,7 @@ class TestGardenToolDirectCalls:
             from app.agents.gardener_agent import get_produce_counts
 
             result = await get_produce_counts.on_invoke_tool(
-                None, '{"plant_name": "tomatoes"}'
+                tool_context(), '{"plant_name": "tomatoes"}'
             )
             assert "tomatoes" in result
 
@@ -182,7 +185,7 @@ class TestGardenToolDirectCalls:
             from app.agents.gardener_agent import add_produce
 
             result = await add_produce.on_invoke_tool(
-                None,
+                tool_context(),
                 '{"plant_name": "tomatoes", "amount": 5.0, "notes": ""}',
             )
             assert "Added 5" in result
@@ -196,7 +199,7 @@ class TestCommuteToolDirectCalls:
         """Test get_current_date tool returns date info."""
         from app.agents.commute_agent import get_current_date
 
-        result = await get_current_date.on_invoke_tool(None, "")
+        result = await get_current_date.on_invoke_tool(tool_context(), "")
         assert "current_date" in result
         assert "current_day" in result
         assert "current_time" in result
@@ -213,7 +216,9 @@ class TestCommuteToolDirectCalls:
         ):
             from app.agents.commute_agent import get_recent_alerts
 
-            result = await get_recent_alerts.on_invoke_tool(None, '{"days": 2}')
+            result = await get_recent_alerts.on_invoke_tool(
+                tool_context(), '{"days": 2}'
+            )
             assert "alerts" in result
 
     @pytest.mark.asyncio
@@ -225,7 +230,7 @@ class TestCommuteToolDirectCalls:
         ):
             from app.agents.commute_agent import read_commute_preferences
 
-            result = await read_commute_preferences.on_invoke_tool(None, "")
+            result = await read_commute_preferences.on_invoke_tool(tool_context(), "")
             assert "Commute Preferences" in result
 
     @pytest.mark.asyncio
@@ -238,7 +243,7 @@ class TestCommuteToolDirectCalls:
             from app.agents.commute_agent import write_commute_preferences
 
             result = await write_commute_preferences.on_invoke_tool(
-                None, '{"content": "# Updated"}'
+                tool_context(), '{"content": "# Updated"}'
             )
             assert "updated successfully" in result
 
@@ -251,7 +256,7 @@ class TestCommuteToolDirectCalls:
         ):
             from app.agents.commute_agent import get_commute_overrides_tool
 
-            result = await get_commute_overrides_tool.on_invoke_tool(None, "")
+            result = await get_commute_overrides_tool.on_invoke_tool(tool_context(), "")
             assert "[]" in result
 
     @pytest.mark.asyncio
@@ -271,7 +276,7 @@ class TestCommuteToolDirectCalls:
             from app.agents.commute_agent import add_commute_override_tool
 
             result = await add_commute_override_tool.on_invoke_tool(
-                None,
+                tool_context(),
                 '{"date": "2026-03-01", "override_type": "commute_day", "note": "going in for a meeting"}',
             )
             assert "abc12345" in result
@@ -286,7 +291,7 @@ class TestCommuteToolDirectCalls:
             from app.agents.commute_agent import remove_commute_override_tool
 
             result = await remove_commute_override_tool.on_invoke_tool(
-                None, '{"override_id": "abc12345"}'
+                tool_context(), '{"override_id": "abc12345"}'
             )
             assert "removed" in result
 
@@ -347,20 +352,20 @@ class TestAgentReasoningEffort:
         assert agent.model_settings.reasoning is not None
         assert agent.model_settings.reasoning.effort == "medium"
 
-    def test_gardener_agent_uses_sdk_defaults(self):
-        """Gardener agent should not have custom reasoning effort (uses SDK defaults)."""
+    def test_gardener_agent_uses_default_effort(self):
+        """Gardener agent has no override, so it gets the default high effort."""
         agent = create_gardener_agent()
-        assert agent.model_settings.reasoning is None
+        assert agent.model_settings.reasoning.effort == "high"
 
-    def test_orchestrator_agent_uses_sdk_defaults(self):
-        """Orchestrator agent should not have custom reasoning effort (uses SDK defaults)."""
+    def test_orchestrator_agent_uses_default_effort(self):
+        """Orchestrator agent has no override, so it gets the default high effort."""
         agent = create_orchestrator_agent()
-        assert agent.model_settings.reasoning is None
+        assert agent.model_settings.reasoning.effort == "high"
 
-    def test_workout_agent_uses_sdk_defaults(self):
-        """Workout agent should not have custom reasoning effort (uses SDK defaults)."""
+    def test_workout_agent_uses_default_effort(self):
+        """Workout agent has no override, so it gets the default high effort."""
         agent = create_workout_agent()
-        assert agent.model_settings.reasoning is None
+        assert agent.model_settings.reasoning.effort == "high"
 
 
 class TestWorkoutAgentConfiguration:

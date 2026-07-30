@@ -6,10 +6,10 @@ import json
 
 import pytest
 from unittest.mock import patch, MagicMock
-from agents import RunContextWrapper
 
 from app.agents.scheduler_agent import schedule_task
 from app.core import conversation_context
+from tests.helpers import tool_context
 
 pytestmark = [pytest.mark.unit, pytest.mark.app]
 
@@ -22,7 +22,7 @@ async def _invoke(**kwargs) -> dict:
         captured["task"] = task
         return "task-id"
 
-    ctx = RunContextWrapper(context=None)
+    ctx = tool_context()
     with (
         patch("app.core.task_store.append_task_to_config", side_effect=fake_append),
         patch("app.core.scheduler.scheduler_service", MagicMock()),
@@ -76,7 +76,7 @@ class TestScheduleTaskInstructionValidation:
         """An agent-mode task with a blank instruction is rejected, not stored."""
         captured = {}
 
-        ctx = RunContextWrapper(context=None)
+        ctx = tool_context()
         with (
             patch(
                 "app.core.task_store.append_task_to_config",

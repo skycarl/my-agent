@@ -8,7 +8,7 @@ agent should handle each request through agent handoffs.
 from agents import Agent, WebSearchTool
 from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
 from loguru import logger
-from app.core.settings import config
+from app.core.settings import config, get_model_settings_for_agent
 from .gardener_agent import create_gardener_agent
 from .commute_agent import create_commute_agent
 from .scheduler_agent import create_scheduler_agent
@@ -73,6 +73,7 @@ Be concise and to the point. Answer the user's question directly and do not offe
         handoffs=handoffs,
         tools=[WebSearchTool()],
         model=agent_model,
+        model_settings=get_model_settings_for_agent("orchestrator"),
     )
 
     logger.debug(

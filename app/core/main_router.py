@@ -42,14 +42,17 @@ from app.models.tasks import (
 
 os.environ["OPENAI_API_KEY"] = config.openai_api_key
 # Timeout/retries are constructor-only params (the SDK never reads them from
-# env vars), so register a configured client with the Agents SDK.
-set_default_openai_client(
-    AsyncOpenAI(
-        api_key=config.openai_api_key,
-        timeout=config.openai_timeout,
-        max_retries=config.openai_max_retries,
+# env vars), so register a configured client with the Agents SDK. The client
+# refuses to construct without a key, so skip it when none is configured
+# (tests and any deployment not using OpenAI).
+if config.openai_api_key:
+    set_default_openai_client(
+        AsyncOpenAI(
+            api_key=config.openai_api_key,
+            timeout=config.openai_timeout,
+            max_retries=config.openai_max_retries,
+        )
     )
-)
 
 router = APIRouter()
 
