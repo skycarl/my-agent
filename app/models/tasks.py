@@ -76,7 +76,7 @@ class APICallConfig(BaseModel):
     headers: Optional[Dict[str, str]] = Field(
         default=None, description="Additional headers to include"
     )
-    timeout: int = Field(default=120, description="Request timeout in seconds")
+    timeout: int = Field(default=300, description="Request timeout in seconds")
 
 
 class NotificationConfig(BaseModel):

@@ -149,13 +149,28 @@ class TaskManager:
                         )
                     else:
                         result.error_message = str(response_data)
-                # Notify on non-exception failures as well (e.g., non-2xx HTTP)
-                try:
-                    await self._notify_error_via_endpoint(task, result.error_message)
-                except Exception as telegram_error:
-                    logger.error(
-                        f"Failed to send error notification (non-exception failure): {telegram_error}"
+                # The /agent_response endpoint owns all user-facing messaging: it
+                # sends successful results and, on a server-side error, its own error
+                # message. Only notify here when the request never reached the
+                # endpoint (delivered=False) — otherwise we double-send (e.g. a false
+                # "failed" notice racing the endpoint's eventual result on timeout).
+                request_delivered = isinstance(
+                    response_data, dict
+                ) and response_data.get("delivered", False)
+                if request_delivered:
+                    logger.debug(
+                        f"Task '{task.id}': endpoint owns user notification; "
+                        "skipping duplicate failure notice"
                     )
+                else:
+                    try:
+                        await self._notify_error_via_endpoint(
+                            task, result.error_message
+                        )
+                    except Exception as telegram_error:
+                        logger.error(
+                            f"Failed to send error notification (non-exception failure): {telegram_error}"
+                        )
 
         except Exception as e:
             error_msg = str(e)
@@ -282,21 +297,33 @@ class TaskManager:
                     }
                 else:
                     logger.warning(f"API call failed: {response.status_code}")
+                    # Endpoint ran and (for /agent_response) already messaged the user.
                     return False, {
                         "status_code": response.status_code,
                         "response": response_data,
                         "error": f"HTTP {response.status_code}",
+                        "delivered": True,
                     }
 
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            # The request never reached the endpoint, so it could not notify the
+            # user. This is the one failure the task manager must report itself.
+            error_msg = f"Could not reach {url}: {e}"
+            logger.warning(error_msg)
+            return False, {"error": error_msg, "delivered": False}
+
         except httpx.TimeoutException:
+            # The request reached the endpoint but it didn't respond within the
+            # timeout. The endpoint is likely still processing and owns user-facing
+            # messaging, so mark as delivered to avoid a duplicate failure notice.
             error_msg = f"API call timed out after {task.api_call.timeout} seconds"
             logger.warning(error_msg)
-            return False, {"error": error_msg}
+            return False, {"error": error_msg, "delivered": True}
 
         except Exception as e:
             error_msg = f"API call failed: {str(e)}"
             logger.error(error_msg)
-            return False, {"error": error_msg}
+            return False, {"error": error_msg, "delivered": False}
 
     # Removed custom function support; TaskManager now only supports 'api_call' tasks.
 

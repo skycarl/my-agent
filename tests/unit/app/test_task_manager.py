@@ -118,17 +118,17 @@ class TestExecuteApiCall:
         assert success is False
         assert data["status_code"] == 500
         assert "error" in data
+        # Endpoint ran and owns user notification.
+        assert data["delivered"] is True
 
     @pytest.mark.asyncio
     async def test_timeout_returns_failure(self, task_manager_instance):
-        """An httpx.TimeoutException returns (False, {error})."""
+        """A read timeout returns (False, {error}) marked delivered (endpoint still running)."""
         task = _make_api_task()
 
         with patch("app.core.task_manager.httpx.AsyncClient") as MockClient:
             client_instance = AsyncMock()
-            client_instance.post = AsyncMock(
-                side_effect=httpx.TimeoutException("timed out")
-            )
+            client_instance.post = AsyncMock(side_effect=httpx.ReadTimeout("timed out"))
             MockClient.return_value.__aenter__ = AsyncMock(return_value=client_instance)
             MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -137,6 +137,28 @@ class TestExecuteApiCall:
         assert success is False
         assert "error" in data
         assert "timed out" in data["error"].lower()
+        # Request reached the endpoint, which owns user-facing messaging.
+        assert data["delivered"] is True
+
+    @pytest.mark.asyncio
+    async def test_connect_error_marks_not_delivered(self, task_manager_instance):
+        """A connection failure returns (False, {error}) marked not delivered."""
+        task = _make_api_task()
+
+        with patch("app.core.task_manager.httpx.AsyncClient") as MockClient:
+            client_instance = AsyncMock()
+            client_instance.post = AsyncMock(
+                side_effect=httpx.ConnectError("connection refused")
+            )
+            MockClient.return_value.__aenter__ = AsyncMock(return_value=client_instance)
+            MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            success, data = await task_manager_instance._execute_api_call(task)
+
+        assert success is False
+        assert "error" in data
+        # Request never reached the endpoint, so the task manager must notify.
+        assert data["delivered"] is False
 
     @pytest.mark.asyncio
     async def test_disallowed_endpoint_rejected(self, task_manager_instance):
@@ -309,6 +331,64 @@ class TestExecuteTask:
             "_execute_api_call",
             new_callable=AsyncMock,
             return_value=(False, {"error": "boom"}),
+        ):
+            with patch.object(
+                task_manager_instance,
+                "_notify_error_via_endpoint",
+                mock_notify,
+            ):
+                await task_manager_instance.execute_task(task)
+
+        mock_notify.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_no_failure_notice_when_endpoint_owns_send(
+        self, task_manager_instance
+    ):
+        """A delivered failure (e.g. timeout) does NOT trigger a duplicate notice.
+
+        The /agent_response endpoint owns user-facing messaging, so when the
+        request reached it (delivered=True) the task manager must stay silent to
+        avoid the false "failed" notice racing the endpoint's eventual result.
+        """
+        task = _make_api_task(max_retries=0, retry_delay=0)
+
+        mock_notify = AsyncMock()
+        with patch.object(
+            task_manager_instance,
+            "_execute_api_call",
+            new_callable=AsyncMock,
+            return_value=(
+                False,
+                {"error": "API call timed out after 120 seconds", "delivered": True},
+            ),
+        ):
+            with patch.object(
+                task_manager_instance,
+                "_notify_error_via_endpoint",
+                mock_notify,
+            ):
+                result = await task_manager_instance.execute_task(task)
+
+        assert result.success is False
+        mock_notify.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_failure_notice_sent_when_request_not_delivered(
+        self, task_manager_instance
+    ):
+        """A not-delivered failure (e.g. connect error) DOES trigger a notice."""
+        task = _make_api_task(max_retries=0, retry_delay=0)
+
+        mock_notify = AsyncMock()
+        with patch.object(
+            task_manager_instance,
+            "_execute_api_call",
+            new_callable=AsyncMock,
+            return_value=(
+                False,
+                {"error": "Could not reach endpoint", "delivered": False},
+            ),
         ):
             with patch.object(
                 task_manager_instance,
