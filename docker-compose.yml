@@ -8,7 +8,9 @@ services:
     command: bash -c "uv run uvicorn app.main:app --host 0.0.0.0 --port 8001 --use-colors"
     tty: true
     ports:
-      - 8001:8001
+      # Loopback only: the bots reach the app as http://app:8001 over app-network,
+      # so nothing needs it on the LAN. Test from the laptop via SSH (see test-pi skill).
+      - 127.0.0.1:8001:8001
     restart: always
     networks:
       - app-network
