@@ -1,6 +1,6 @@
 ---
 name: test-pi
-description: Test the my-agent deployment on the Raspberry Pi over the local network. Use when testing endpoints, checking service health, or debugging the Pi deployment.
+description: Test the my-agent deployment on the Raspberry Pi (over SSH; the app port is loopback-only). Use when testing endpoints, checking service health, or debugging the Pi deployment.
 allowed-tools: Bash(curl *), Bash(ping *), Bash(ssh *)
 argument-hint: [endpoint-or-action]
 ---
@@ -13,10 +13,12 @@ Test the my-agent app running on the Raspberry Pi at `192.168.1.247`.
 
 - **Pi host**: `192.168.1.247` (alias: `pi5` = `ssh sky@192.168.1.247`)
 - **App port**: `8001` (FastAPI)
-- **Base URL**: `http://192.168.1.247:8001`
-- **Auth header**: `X-Token: $X_TOKEN` — read the value from the local
-  `.env` file (`X_TOKEN=...`); never hard-code it in this file, which is
-  checked into a public repo.
+- **Base URL**: `http://localhost:8001` **on the Pi**. The port is published on
+  `127.0.0.1` only (see `docker-compose.yml`), so `http://192.168.1.247:8001` from
+  this machine is refused. Run curl on the Pi over SSH, or open a tunnel.
+- **Auth header**: `X-Token: <X_TOKEN from the Pi's ~/apps/my-agent/.env>`. Build it
+  on the Pi (see below). The laptop's `.env` token differs. Never hard-code it in this
+  file, which is checked into a public repo.
 
 ## Available Endpoints
 
@@ -24,7 +26,7 @@ Test the my-agent app running on the Raspberry Pi at `192.168.1.247`.
 - `GET /healthcheck` — Returns `{"status": "healthy"}`
 - `GET /models` — Returns available models and default model
 
-### Auth required (include `-H "X-Token: $X_TOKEN"`)
+### Auth required (`X-Token` header, see below)
 - `GET /tasks` — List scheduled tasks. Query params: `only_enabled=true`, `name_filter=...`
 - `POST /tasks` — Create a scheduled task (JSON body)
 - `DELETE /tasks/{task_id}` — Delete a scheduled task
@@ -35,18 +37,25 @@ Test the my-agent app running on the Raspberry Pi at `192.168.1.247`.
 
 ## How to Test
 
-Use curl from this machine to hit the Pi over the local network:
+Run curl on the Pi over SSH (the app port isn't reachable from the LAN):
 
 ```bash
 # Health check
-curl -s http://192.168.1.247:8001/healthcheck | python3 -m json.tool
+ssh sky@192.168.1.247 'curl -s http://localhost:8001/healthcheck' | python3 -m json.tool
 
 # List models
-curl -s http://192.168.1.247:8001/models | python3 -m json.tool
+ssh sky@192.168.1.247 'curl -s http://localhost:8001/models' | python3 -m json.tool
 
-# List tasks (load the token from .env rather than typing it inline)
-X_TOKEN="$(grep -E '^X_TOKEN=' .env | cut -d= -f2-)"
-curl -s -H "X-Token: $X_TOKEN" http://192.168.1.247:8001/tasks | python3 -m json.tool
+# List tasks. Build the auth header on the Pi from the Pi's own .env and feed it to
+# curl on stdin (`-H @-`), so the token never leaves the Pi or appears on a command line.
+# (The laptop's .env has a different X_TOKEN and won't authenticate against the Pi.)
+ssh sky@192.168.1.247 'cd ~/apps/my-agent && sed -n "s/^X_TOKEN=/X-Token: /p" .env \
+  | curl -s -H @- http://localhost:8001/tasks' | python3 -m json.tool
+
+# Alternatively, for several calls or POST bodies, open a tunnel and curl localhost:
+#   ssh -fN -L 8001:localhost:8001 sky@192.168.1.247
+#   curl -s http://localhost:8001/healthcheck
+#   (close it afterwards: pkill -f 'L 8001:localhost:8001')
 
 # Check Docker containers on Pi
 ssh sky@192.168.1.247 'docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"'
